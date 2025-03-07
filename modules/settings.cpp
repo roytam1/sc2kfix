@@ -33,6 +33,40 @@ BOOL bSettingsUseNewStrings = TRUE;
 BOOL bSettingsMilitaryBaseRevenue = FALSE;	// NYI
 BOOL bSettingsFixOrdinances = FALSE;		// NYI
 
+#if 1
+int
+_RegGetValue(HKEY key, LPCSTR subkey, LPCSTR value, DWORD dwFlags, LPDWORD pdwType, LPBYTE dst, LPDWORD dlen)
+{
+	HKEY lkey;
+	LONG r;
+	DWORD len;
+	DWORD type;
+
+	r = RegOpenKeyEx(key, subkey, 0, KEY_READ, &lkey);
+
+	if (ERROR_SUCCESS == r) {
+		r = RegQueryValueEx(lkey, value, 0, &type, NULL, &len);
+		if (ERROR_SUCCESS == r && len <= *dlen && type == REG_SZ) {
+			type = REG_SZ;
+			r = RegQueryValueEx(lkey, value, 0, &type, dst, &len);
+		}
+		else {
+			SetLastError(r);
+			perror("");
+		}
+	}
+	else {
+		SetLastError(r);
+		perror("");
+		return FALSE;
+	}
+	RegCloseKey(lkey);
+	return TRUE;
+}
+#else
+#define _RegGetValue RegGetValue
+#endif
+
 void LoadSettings(void) {
 	HKEY hkeySC2KRegistration;
 	LSTATUS lResultRegistration = RegCreateKeyEx(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\Registration", NULL, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hkeySC2KRegistration, NULL);
@@ -46,7 +80,7 @@ void LoadSettings(void) {
 	DWORD dwCompanyNameSize = 64;
 	LSTATUS retval = ERROR_SUCCESS;
 
-	retval = RegGetValue(hkeySC2KRegistration, NULL, "Mayor Name", RRF_RT_REG_SZ, NULL, szSettingsMayorName, &dwMayorNameSize);
+	retval = _RegGetValue(hkeySC2KRegistration, NULL, "Mayor Name", RRF_RT_REG_SZ, NULL, (LPBYTE)szSettingsMayorName, &dwMayorNameSize);
 	switch (retval) {
 	case ERROR_SUCCESS:
 		break;
@@ -58,7 +92,7 @@ void LoadSettings(void) {
 		break;
 	}
 
-	retval = RegGetValue(hkeySC2KRegistration, NULL, "Company Name", RRF_RT_REG_SZ, NULL, szSettingsCompanyName, &dwCompanyNameSize);
+	retval = _RegGetValue(hkeySC2KRegistration, NULL, "Company Name", RRF_RT_REG_SZ, NULL, (LPBYTE)szSettingsCompanyName, &dwCompanyNameSize);
 	switch (retval) {
 	case ERROR_SUCCESS:
 		break;
@@ -76,31 +110,31 @@ void LoadSettings(void) {
 	// QoL/performance settings
 
 	DWORD dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsMusicInBackground", RRF_RT_REG_DWORD, NULL, &bSettingsMusicInBackground, &dwSizeofBool) != ERROR_SUCCESS) {
+	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsMusicInBackground", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsMusicInBackground, &dwSizeofBool) != ERROR_SUCCESS) {
 		bSettingsMusicInBackground = TRUE;
 		RegSetValueEx(hkeySC2KFix, "bSettingsMusicInBackground", NULL, REG_DWORD, (BYTE*)&bSettingsMusicInBackground, sizeof(BOOL));
 	}
 
 	dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsUseSoundReplacements", RRF_RT_REG_DWORD, NULL, &bSettingsUseSoundReplacements, &dwSizeofBool)) {
+	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsUseSoundReplacements", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsUseSoundReplacements, &dwSizeofBool)) {
 		bSettingsUseSoundReplacements = TRUE;
 		RegSetValueEx(hkeySC2KFix, "bSettingsUseSoundReplacements", NULL, REG_DWORD, (BYTE*)&bSettingsUseSoundReplacements, sizeof(BOOL));
 	}
 
 	dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsShuffleMusic", RRF_RT_REG_DWORD, NULL, &bSettingsShuffleMusic, &dwSizeofBool)) {
+	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsShuffleMusic", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsShuffleMusic, &dwSizeofBool)) {
 		bSettingsShuffleMusic = FALSE;
 		RegSetValueEx(hkeySC2KFix, "bSettingsShuffleMusic", NULL, REG_DWORD, (BYTE*)&bSettingsShuffleMusic, sizeof(BOOL));
 	}
 
 	dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsUseMultithreadedMusic", RRF_RT_REG_DWORD, NULL, &bSettingsUseMultithreadedMusic, &dwSizeofBool)) {
+	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsUseMultithreadedMusic", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsUseMultithreadedMusic, &dwSizeofBool)) {
 		bSettingsUseMultithreadedMusic = TRUE;
 		RegSetValueEx(hkeySC2KFix, "bSettingsUseMultithreadedMusic", NULL, REG_DWORD, (BYTE*)&bSettingsUseMultithreadedMusic, sizeof(BOOL));
 	}
 
 	dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsFrequentCityRefresh", RRF_RT_REG_DWORD, NULL, &bSettingsFrequentCityRefresh, &dwSizeofBool)) {
+	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsFrequentCityRefresh", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsFrequentCityRefresh, &dwSizeofBool)) {
 		bSettingsFrequentCityRefresh = TRUE;
 		RegSetValueEx(hkeySC2KFix, "bSettingsFrequentCityRefresh", NULL, REG_DWORD, (BYTE*)&bSettingsFrequentCityRefresh, sizeof(BOOL));
 	}
@@ -108,13 +142,13 @@ void LoadSettings(void) {
 	// sc2kfix settings
 
 	dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsAlwaysConsole", RRF_RT_REG_DWORD, NULL, &bSettingsAlwaysConsole, &dwSizeofBool)) {
+	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsAlwaysConsole", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsAlwaysConsole, &dwSizeofBool)) {
 		bSettingsAlwaysConsole = FALSE;
 		RegSetValueEx(hkeySC2KFix, "bSettingsAlwaysConsole", NULL, REG_DWORD, (BYTE*)&bSettingsAlwaysConsole, sizeof(BOOL));
 	}
 
 	dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsCheckForUpdates", RRF_RT_REG_DWORD, NULL, &bSettingsCheckForUpdates, &dwSizeofBool)) {
+	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsCheckForUpdates", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsCheckForUpdates, &dwSizeofBool)) {
 		bSettingsCheckForUpdates = TRUE;
 		RegSetValueEx(hkeySC2KFix, "bSettingsCheckForUpdates", NULL, REG_DWORD, (BYTE*)&bSettingsCheckForUpdates, sizeof(BOOL));
 	}
@@ -122,19 +156,19 @@ void LoadSettings(void) {
 	// Interface settings
 
 	dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsUseStatusDialog", RRF_RT_REG_DWORD, NULL, &bSettingsUseStatusDialog, &dwSizeofBool)) {
+	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsUseStatusDialog", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsUseStatusDialog, &dwSizeofBool)) {
 		bSettingsUseStatusDialog = FALSE;
 		RegSetValueEx(hkeySC2KFix, "bSettingsUseStatusDialog", NULL, REG_DWORD, (BYTE*)&bSettingsUseStatusDialog, sizeof(BOOL));
 	}
 
 	dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsTitleCalendar", RRF_RT_REG_DWORD, NULL, &bSettingsTitleCalendar, &dwSizeofBool)) {
+	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsTitleCalendar", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsTitleCalendar, &dwSizeofBool)) {
 		bSettingsTitleCalendar = TRUE;
 		RegSetValueEx(hkeySC2KFix, "bSettingsTitleCalendar", NULL, REG_DWORD, (BYTE*)&bSettingsTitleCalendar, sizeof(BOOL));
 	}
 
 	dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsUseNewStrings", RRF_RT_REG_DWORD, NULL, &bSettingsUseNewStrings, &dwSizeofBool)) {
+	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsUseNewStrings", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsUseNewStrings, &dwSizeofBool)) {
 		bSettingsUseNewStrings = TRUE;
 		RegSetValueEx(hkeySC2KFix, "bSettingsUseNewStrings", NULL, REG_DWORD, (BYTE*)&bSettingsUseNewStrings, sizeof(BOOL));
 	}
@@ -142,13 +176,13 @@ void LoadSettings(void) {
 	// Gameplay mods
 
 	dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsMilitaryBaseRevenue", RRF_RT_REG_DWORD, NULL, &bSettingsMilitaryBaseRevenue, &dwSizeofBool)) {
+	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsMilitaryBaseRevenue", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsMilitaryBaseRevenue, &dwSizeofBool)) {
 		bSettingsMilitaryBaseRevenue = FALSE;
 		RegSetValueEx(hkeySC2KFix, "bSettingsMilitaryBaseRevenue", NULL, REG_DWORD, (BYTE*)&bSettingsMilitaryBaseRevenue, sizeof(BOOL));
 	}
 
 	dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsFixOrdinances", RRF_RT_REG_DWORD, NULL, &bSettingsFixOrdinances, &dwSizeofBool)) {
+	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsFixOrdinances", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsFixOrdinances, &dwSizeofBool)) {
 		bSettingsFixOrdinances = FALSE;
 		RegSetValueEx(hkeySC2KFix, "bSettingsFixOrdinances", NULL, REG_DWORD, (BYTE*)&bSettingsFixOrdinances, sizeof(BOOL));
 	}
