@@ -34,34 +34,50 @@ BOOL bSettingsMilitaryBaseRevenue = FALSE;	// NYI
 BOOL bSettingsFixOrdinances = FALSE;		// NYI
 
 #if 1
-int
-_RegGetValue(HKEY key, LPCSTR subkey, LPCSTR value, DWORD dwFlags, LPDWORD pdwType, LPBYTE dst, LPDWORD dlen)
-{
-	HKEY lkey;
-	LONG r;
-	DWORD len;
-	DWORD type;
+typedef LSTATUS(WINAPI *MDBX_RegGetValueA)(HKEY hKey, LPCSTR lpSubKey,
+                                           LPCSTR lpValue, DWORD dwFlags,
+                                           LPDWORD pdwType, PVOID pvData,
+                                           LPDWORD pcbData);
+static MDBX_RegGetValueA mdbx_RegGetValueA = NULL;
+static int mdbx_RegGetValueA_tried = 0;
 
-	r = RegOpenKeyEx(key, subkey, 0, KEY_READ, &lkey);
+static LSTATUS _RegGetValue(HKEY hKey, LPCSTR lpSubKey, LPCSTR lpValue, DWORD dwFlags, LPDWORD pdwType,
+                                PVOID pvData, LPDWORD pcbData) {
+  LSTATUS rc;
+  if(!mdbx_RegGetValueA_tried) {
+    mdbx_RegGetValueA = (MDBX_RegGetValueA)GetProcAddress(LoadLibraryA("advapi32.dll"), "RegGetValueA");
+    mdbx_RegGetValueA_tried = 1;
+  }
 
-	if (ERROR_SUCCESS == r) {
-		r = RegQueryValueEx(lkey, value, 0, &type, NULL, &len);
-		if (ERROR_SUCCESS == r && len <= *dlen && type == REG_SZ) {
-			type = REG_SZ;
-			r = RegQueryValueEx(lkey, value, 0, &type, dst, &len);
-		}
-		else {
-			SetLastError(r);
-			perror("");
-		}
-	}
-	else {
-		SetLastError(r);
-		perror("");
-		return FALSE;
-	}
-	RegCloseKey(lkey);
-	return TRUE;
+  if (!mdbx_RegGetValueA) {
+    /* an old Windows 2000/XP */
+    HKEY hSubKey;
+    if (lpSubKey) {
+        rc = RegOpenKeyA(hKey, lpSubKey, &hSubKey);
+    } else { /* lpSubKey is null, so use hKey directly, don't close it */
+        hSubKey = hKey;
+        rc = ERROR_SUCCESS;
+    }
+    if (rc == ERROR_SUCCESS) {
+      rc = RegQueryValueExA(hSubKey, lpValue, NULL, pdwType, (LPBYTE)pvData, pcbData);
+      if (lpSubKey) RegCloseKey(hSubKey);
+    }
+    return rc;
+  }
+
+  rc = mdbx_RegGetValueA(hKey, lpSubKey, lpValue, dwFlags, pdwType, pvData,
+                         pcbData);
+  if (rc != ERROR_FILE_NOT_FOUND)
+    return rc;
+
+  rc = mdbx_RegGetValueA(hKey, lpSubKey, lpValue,
+                         dwFlags | 0x00010000 /* RRF_SUBKEY_WOW6464KEY */,
+                         pdwType, pvData, pcbData);
+  if (rc != ERROR_FILE_NOT_FOUND)
+    return rc;
+  return mdbx_RegGetValueA(hKey, lpSubKey, lpValue,
+                           dwFlags | 0x00020000 /* RRF_SUBKEY_WOW6432KEY */,
+                           pdwType, pvData, pcbData);
 }
 #else
 #define _RegGetValue RegGetValue
