@@ -1,5 +1,5 @@
 // sc2kfix sc2kfix.h: globals that need to be used elsewhere
-// (c) 2025 github.com/araxestroy - released under the MIT license
+// (c) 2025 sc2kfix project (https://sc2kfix.net) - released under the MIT license
 
 #pragma once
 
@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <random>
 
+#include <smk.h>
 #include <sc2k_1996.h>
 
 // Turning this on enables every debugging option. You have been warned.
@@ -88,11 +89,13 @@ enum {
 // Settings globals
 extern char szSettingsMayorName[64];
 extern char szSettingsCompanyName[64];
+
 extern BOOL bSettingsMusicInBackground;
 extern BOOL bSettingsUseSoundReplacements;
 extern BOOL bSettingsShuffleMusic;
 extern BOOL bSettingsUseMultithreadedMusic;
 extern BOOL bSettingsFrequentCityRefresh;
+extern BOOL bSettingsUseMP3Music;
 
 extern BOOL bSettingsAlwaysConsole;
 extern BOOL bSettingsCheckForUpdates;
@@ -100,9 +103,21 @@ extern BOOL bSettingsCheckForUpdates;
 extern BOOL bSettingsUseStatusDialog;
 extern BOOL bSettingsTitleCalendar;
 extern BOOL bSettingsUseNewStrings;
+extern BOOL bSettingsUseLocalMovies;
 
 extern BOOL bSettingsMilitaryBaseRevenue;
 extern BOOL bSettingsFixOrdinances;
+
+// Path functions (from registry area)
+
+const char *GetSetMoviesPath();
+
+// SMK funcs
+
+extern BOOL smk_enabled;
+
+void GetSMKFuncs();
+void ReleaseSMKFuncs();
 
 // Utility functions
 
