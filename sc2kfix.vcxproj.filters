@@ -45,6 +45,9 @@
     <ClInclude Include="include\smk.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\music.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="hooks\hook_mciSendCommand.cpp">
@@ -89,8 +92,11 @@
     <ClCompile Include="modules\sc2k_1996.cpp">
       <Filter>Source Files\Modules</Filter>
     </ClCompile>
-    <ClCompile Include="smk.cpp">
-      <Filter>Source Files</Filter>
+    <ClCompile Include="modules\smk.cpp">
+      <Filter>Source Files\Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="modules\music.cpp">
+      <Filter>Source Files\Modules</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -103,9 +109,6 @@
       <Filter>Source Files\Hooks</Filter>
     </None>
     <None Include="README.md">
-      <Filter>Documentation</Filter>
-    </None>
-    <None Include="hooks\hooks.md">
       <Filter>Documentation</Filter>
     </None>
     <None Include="script.md">

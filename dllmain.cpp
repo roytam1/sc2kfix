@@ -1,5 +1,5 @@
 // sc2kfix dllmain.cpp: all the magic happens here
-// (c) 2025 github.com/araxestroy - released under the MIT license
+// (c) 2025 sc2kfix project (https://sc2kfix.net) - released under the MIT license
 
 #define GETPROC(i, name) fpWinMMHookList[i] = GetProcAddress(hRealWinMM, #name);
 #define DEFPROC(i, name) extern "C" __declspec(naked) void __stdcall _##name() { __asm { jmp fpWinMMHookList[i*4] }};
@@ -122,6 +122,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
                     bConsoleEnabled = TRUE;
                 if (!lstrcmpiW(argv[i], L"-defaults"))
                     bSkipLoadSettings = TRUE;
+                if (!lstrcmpiW(argv[i], L"-skipintro"))
+                    bSkipIntro = TRUE;
                 // TODO - put some debug options here
             }
         }
@@ -134,6 +136,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 
         // Open a log file. If it fails, we handle that safely elsewhere
         fopen_s(&fdLog, "sc2kfix.log", "w");
+
+        // Force the console to be enabled if bSettingsAlwaysConsole is set
+        if (bSettingsAlwaysConsole)
+            bConsoleEnabled = true;
 
         // Force the console to be enabled if DEBUGALL is defined
 #ifdef DEBUGALL
@@ -157,7 +163,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 
         // Print the version banner
         // Yes, I know, there's no CORE: prefix here. That's intentional. I promise.
-        ConsoleLog(LOG_INFO, "sc2kfix version %s started - https://github.com/araxestroy/sc2kfix\n", szSC2KFixVersion);
+        ConsoleLog(LOG_INFO, "sc2kfix version %s started - https://sc2kfix.net\n", szSC2KFixVersion);
 #ifdef DEBUGALL
         ConsoleLog(LOG_DEBUG, "CORE: sc2kfix built with DEBUGALL. Strap in.\n");
 #endif

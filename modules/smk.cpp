@@ -1,5 +1,5 @@
-// sc2kfix utility.cpp: utility functions to save me from reinventing the wheel
-// (c) 2025 github.com/araxestroy - released under the MIT license
+// sc2kfix smk.cpp: run-time loading/releasing functions for smk.
+// (c) 2025 sc2kfix project (https://sc2kfix.net) - released under the MIT license
 
 #undef UNICODE
 #define WIN32_LEAN_AND_MEAN
@@ -17,6 +17,7 @@
 SMKOpenPtr SMKOpenProc;
 
 BOOL smk_enabled = FALSE;
+BOOL bSkipIntro = FALSE;
 
 static HMODULE hMod_SMK = 0;
 
@@ -29,13 +30,13 @@ void GetSMKFuncs() {
 
 	hMod_SMK = LoadLibraryA(szSMKLibPath);
 	if ( ((UINT)hMod_SMK) < ((UINT)HINSTANCE_ERROR) ) {
-		ConsoleLog(LOG_ERROR, "Failed to load smacker library, related hooks will be disabled.\n");
+		ConsoleLog(LOG_ERROR, "SMK:  Failed to load smacker library, related hooks will be disabled.\n");
 		return;
 	}
 
 	SMKOpenProc = (SMKOpenPtr) GetProcAddress(hMod_SMK, "_SmackOpen");
 	if (!SMKOpenProc) {
-		ConsoleLog(LOG_ERROR, "Failed to load smacker open function. related hooks will be disabled\n");
+		ConsoleLog(LOG_ERROR, "SMK:  Failed to load smacker open function. related hooks will be disabled\n");
 
 		FreeLibrary(hMod_SMK);
 		hMod_SMK = 0;
@@ -43,12 +44,12 @@ void GetSMKFuncs() {
 	}
 
 	smk_enabled = TRUE;
-	ConsoleLog(LOG_INFO, "Loaded smacker functions.\n");
+	ConsoleLog(LOG_INFO, "SMK:  Loaded smacker functions.\n");
 }
 
 void ReleaseSMKFuncs() {
 	if (hMod_SMK) {
-		ConsoleLog(LOG_INFO, "Releasing smacker functions.\n");
+		ConsoleLog(LOG_INFO, "SMK:  Releasing smacker functions.\n");
 
 		FreeLibrary(hMod_SMK);
 		hMod_SMK = 0;

@@ -28,6 +28,7 @@
 #define MISCHOOK_DEBUG_DISASTERS 32
 #define MISCHOOK_DEBUG_MOVIES 64
 #define MISCHOOK_DEBUG_SMACK 128
+#define MISCHOOK_DEBUG_REGISTRY 256
 
 #define MISCHOOK_DEBUG DEBUG_FLAGS_NONE
 
@@ -40,8 +41,6 @@ UINT mischook_debug = MISCHOOK_DEBUG;
 
 static DWORD dwDummy;
 
-static char def_data_path[] = "A:\\DATA\\";
-
 UINT iMilitaryBaseTries = 0;
 WORD wMilitaryBaseX = 0, wMilitaryBaseY = 0;
 
@@ -51,18 +50,23 @@ char szTempMayorName[24] = { 0 };
 char szCurrentMonthDay[24] = { 0 };
 const char* szMonthNames[12] = { "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" };
 
-static void AdjustDefDataPathDrive() {
-	// Let's get the drive letter from
-	// the movies path.
-	const char *temp = GetSetMoviesPath();
-	if (!temp)
-		return;
-	def_data_path[0] = temp[0];
+static const char AdjustMoviePathDrive() {
+	// Let's get the drive letter from one of two paths:
+	// a) Movies path if the setting to use local movies is enabled
+	// b) Goodies path if you want to default to the presumed CD location.
+	const char *temp = (bSettingsUseLocalMovies) ? GetSetMoviesPath() : GetGoodiesPath();
+	if (!temp && !isalpha(temp[0]))
+		return 'A';
+	return temp[0];
 }
 
 // Reference and inspiration for this comes from the separate
 // 'simcity-noinstall' project.
 static const char *AdjustSource(char *buf, const char *path) {
+	static char def_data_path[] = "A:\\DATA\\";
+
+	def_data_path[0] = AdjustMoviePathDrive();
+	
 	int plen = strlen(path);
 	int flen = strlen(def_data_path);
 	if (plen <= flen || _strnicmp(def_data_path, path, flen) != 0) {
@@ -83,15 +87,33 @@ static const char *AdjustSource(char *buf, const char *path) {
 	strcat_s(buf, MAX_PATH, temp);
 
 	if (mischook_debug & MISCHOOK_DEBUG_OTHER)
-		ConsoleLog(LOG_DEBUG, "File: 0x%08X -> Adjustment - %s -> %s\n", _ReturnAddress(), path, buf);
+		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> Source Adjustment - %s -> %s\n", _ReturnAddress(), path, buf);
 
 	return buf;
+}
+
+extern "C" LSTATUS __stdcall Hook_RegQueryValueExA(HKEY hKey, LPCSTR lpValueName, LPDWORD lpReserved, LPDWORD lpType, LPBYTE lpData, LPDWORD lpcbData) {
+	if (mischook_debug & MISCHOOK_DEBUG_REGISTRY)
+		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> RegQueryValueExA(0x%08x, %s, 0x%08X, 0x%08X, 0x%08X, 0x%08X)\n", _ReturnAddress(), hKey, lpValueName,
+			lpReserved, *lpType, lpData, lpcbData);
+
+	if (_stricmp(lpValueName, "Goodies") == 0) {
+		if (*lpType == REG_SZ) {
+			if (bSettingsUseLocalMovies) {
+				if (mischook_debug & MISCHOOK_DEBUG_REGISTRY)
+					ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> Query Adjustment - %s -> %s\n", _ReturnAddress(), lpValueName, "MOVIES");
+				return RegQueryValueExA(hKey, "MOVIES", lpReserved, lpType, lpData, lpcbData);
+			}
+		}
+	}
+
+	return RegQueryValueExA(hKey, lpValueName, lpReserved, lpType, lpData, lpcbData);
 }
 
 extern "C" HANDLE __stdcall Hook_CreateFileA(LPCSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode,
 	LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes, HANDLE hTemplateFile) {
 	if (mischook_debug & MISCHOOK_DEBUG_OTHER)
-		ConsoleLog(LOG_DEBUG, "File:  0x%08X -> CreateFileA(%s, 0x%08X, 0x%08X, 0x%08X, 0x%08X, 0x%08X, 0x%08X)\n", _ReturnAddress(), lpFileName,
+		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> CreateFileA(%s, 0x%08X, 0x%08X, 0x%08X, 0x%08X, 0x%08X, 0x%08X)\n", _ReturnAddress(), lpFileName,
 			dwDesiredAccess, dwShareMode, lpSecurityAttributes, dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
 	if (bSettingsUseLocalMovies) {
 		if ((DWORD)_ReturnAddress() == 0x4A8A90 ||
@@ -102,7 +124,7 @@ extern "C" HANDLE __stdcall Hook_CreateFileA(LPCSTR lpFileName, DWORD dwDesiredA
 
 			HANDLE hFileHandle = CreateFileA(AdjustSource(buf, lpFileName), dwDesiredAccess, dwShareMode, lpSecurityAttributes, dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
 			if (mischook_debug & MISCHOOK_DEBUG_OTHER)
-				ConsoleLog(LOG_DEBUG, "File (Modification):  0x%08X -> CreateFileA(%s, 0x%08X, 0x%08X, 0x%08X, 0x%08X, 0x%08X, 0x%08X) (0x%08x)\n", _ReturnAddress(), lpFileName,
+				ConsoleLog(LOG_DEBUG, "MISC: (Modification): 0x%08X -> CreateFileA(%s, 0x%08X, 0x%08X, 0x%08X, 0x%08X, 0x%08X, 0x%08X) (0x%08x)\n", _ReturnAddress(), lpFileName,
 					dwDesiredAccess, dwShareMode, lpSecurityAttributes, dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile, hFileHandle);
 			return hFileHandle;
 		}
@@ -112,7 +134,7 @@ extern "C" HANDLE __stdcall Hook_CreateFileA(LPCSTR lpFileName, DWORD dwDesiredA
 
 extern "C" HANDLE __stdcall Hook_FindFirstFileA(LPCSTR lpFileName, LPWIN32_FIND_DATAA lpFindFileData) {
 	if (mischook_debug & MISCHOOK_DEBUG_OTHER)
-		ConsoleLog(LOG_DEBUG, "File:  0x%08X -> FindFirstFileA(%s, 0x%08X)\n", _ReturnAddress(), lpFileName, lpFindFileData);
+		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> FindFirstFileA(%s, 0x%08X)\n", _ReturnAddress(), lpFileName, lpFindFileData);
 	if (bSettingsUseLocalMovies) {
 		if ((DWORD)_ReturnAddress() == 0x4A8A90 ||
 			(DWORD)_ReturnAddress() == 0x48A810) {
@@ -122,7 +144,7 @@ extern "C" HANDLE __stdcall Hook_FindFirstFileA(LPCSTR lpFileName, LPWIN32_FIND_
 
 			HANDLE hFileHandle = FindFirstFileA(AdjustSource(buf, lpFileName), lpFindFileData);
 			if (mischook_debug & MISCHOOK_DEBUG_OTHER)
-				ConsoleLog(LOG_DEBUG, "File (Modification):  0x%08X -> FindFirstFileA(%s, 0x%08X) (0x%08x)\n", _ReturnAddress(), buf, lpFindFileData, hFileHandle);
+				ConsoleLog(LOG_DEBUG, "MISC: (Modification): 0x%08X -> FindFirstFileA(%s, 0x%08X) (0x%08x)\n", _ReturnAddress(), buf, lpFindFileData, hFileHandle);
 			return hFileHandle;
 		}
 	}
@@ -277,6 +299,12 @@ extern "C" BOOL __stdcall Hook_ShowWindow(HWND hWnd, int nCmdShow) {
 extern "C" DWORD __cdecl Hook_SmackOpen(LPCSTR lpFileName, uint32_t uFlags, int32_t iExBuf) {
 	if (mischook_debug & MISCHOOK_DEBUG_SMACK)
 		ConsoleLog(LOG_DEBUG, "SMK:  0x%08X -> _SmackOpen(%s, %u, %i)\n", _ReturnAddress(), lpFileName, uFlags, iExBuf);
+
+	if (bSkipIntro)
+		if (strrchr(lpFileName, '\\'))
+			if (!strcmp(strrchr(lpFileName, '\\'), "\\INTROA.SMK") || !strcmp(strrchr(lpFileName, '\\'), "\\INTROB.SMK"))
+				return NULL;
+
 	if (bSettingsUseLocalMovies) {
 		char buf[MAX_PATH + 1];
 
@@ -482,7 +510,8 @@ extern "C" int __cdecl Hook_SimulationPrepareDisaster(DWORD* a1, __int16 a2, __i
 // This should probably have a better name. And maybe be broken out into smaller functions.
 void InstallMiscHooks(void) {
 
-	AdjustDefDataPathDrive();
+	// Install RegQueryValueExA
+	*(DWORD*)(0x4EF800) = (DWORD)Hook_RegQueryValueExA;
 
 	// Install CreateFileA hook
 	*(DWORD*)(0x4EFADC) = (DWORD)Hook_CreateFileA;
@@ -588,22 +617,8 @@ void InstallMiscHooks(void) {
 	VirtualProtect((LPVOID)0x401F9B, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
 	NEWJMP((LPVOID)0x401F9B, Hook_LoadSoundBuffer);
 
-	// Restore additional music
-	VirtualProtect((LPVOID)0x401A9B, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x401A9B, Hook_MusicPlayNextRefocusSong);
-
-	// Shuffle music if the shuffle setting is enabled
-	MusicShufflePlaylist(0);
-
-	// Replace music functions with ones to post messages to the music thread
-	if (bSettingsUseMultithreadedMusic) {
-		VirtualProtect((LPVOID)0x402414, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-		NEWJMP((LPVOID)0x402414, Hook_MusicPlay);
-		VirtualProtect((LPVOID)0x402BE4, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-		NEWJMP((LPVOID)0x402BE4, Hook_MusicStop);
-		VirtualProtect((LPVOID)0x4D2BFC, 4, PAGE_EXECUTE_READWRITE, &dwDummy);
-		*(DWORD*)0x4D2BFC = (DWORD)MusicMCINotifyCallback;
-	}
+	// Install music engine hooks
+	InstallMusicEngineHooks();
 
 	// Load weather icons
 	for (int i = 0; i < 13; i++) {
