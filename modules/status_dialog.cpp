@@ -17,6 +17,7 @@
 
 HWND hStatusDialog = NULL;
 HANDLE hWeatherBitmaps[13];
+HANDLE hCompassBitmaps[4];
 static HCURSOR hDefaultCursor = NULL;
 static HWND hwndDesktop;
 static RECT rcTemp, rcDlg, rcDesktop;
@@ -29,6 +30,9 @@ extern "C" int __stdcall Hook_402793(int iStatic, char* szText, int iMaybeAlways
 	__asm push ecx
 
 	if (hStatusDialog) {
+		SendMessage(GetDlgItem(hStatusDialog, IDC_STATIC_COMPASS), STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hCompassBitmaps[wViewRotation]);
+		InvalidateRect(GetDlgItem(hStatusDialog, IDC_STATIC_COMPASS), NULL, TRUE);
+
 		if (iStatic == 0) {
 			char szCurrentText[200];
 			GetDlgItemText(hStatusDialog, IDC_STATIC_SELECTEDTOOL, szCurrentText, 200);
@@ -50,11 +54,18 @@ extern "C" int __stdcall Hook_402793(int iStatic, char* szText, int iMaybeAlways
 				InvalidateRect(GetDlgItem(hStatusDialog, IDC_STATIC_STATUSSTRING), NULL, TRUE);
 			}
 		} else if (iStatic == 2) {
-			if (crStatusColor == RGB(255, 0, 0))
-				SendMessage(GetDlgItem(hStatusDialog, IDC_BUTTON_WEATHERICON), BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hWeatherBitmaps[12]);
-			else
-				SendMessage(GetDlgItem(hStatusDialog, IDC_BUTTON_WEATHERICON), BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hWeatherBitmaps[bWeatherTrend]);
+			if (crStatusColor == RGB(255, 0, 0)) {
+				ShowWindow(GetDlgItem(hStatusDialog, IDC_BUTTON_WEATHERICON), SW_HIDE);
+				ShowWindow(GetDlgItem(hStatusDialog, IDC_BUTTON_GOTO), SW_SHOW);
+				SendMessage(GetDlgItem(hStatusDialog, IDC_BUTTON_GOTO), BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hWeatherBitmaps[12]);
+			}
+			else {
+				ShowWindow(GetDlgItem(hStatusDialog, IDC_BUTTON_WEATHERICON), SW_SHOW);
+				ShowWindow(GetDlgItem(hStatusDialog, IDC_BUTTON_GOTO), SW_HIDE);
+				SendMessage(GetDlgItem(hStatusDialog, IDC_BUTTON_WEATHERICON), STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hWeatherBitmaps[bWeatherTrend]);
+			}
 			InvalidateRect(GetDlgItem(hStatusDialog, IDC_BUTTON_WEATHERICON), NULL, TRUE);
+			InvalidateRect(GetDlgItem(hStatusDialog, IDC_BUTTON_GOTO), NULL, TRUE);
 		} else
 			InvalidateRect(hStatusDialog, NULL, FALSE);
 	}
@@ -138,7 +149,7 @@ BOOL CALLBACK StatusDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM
 
 	case WM_COMMAND:
 		switch (GET_WM_COMMAND_ID(wParam, lParam)) {
-			case IDC_BUTTON_WEATHERICON:
+			case IDC_BUTTON_GOTO:
 				if (GET_WM_COMMAND_CMD(wParam, lParam) == BN_CLICKED) {
 					HWND phWnd = GetParent(hwndDlg);
 					if (phWnd) {
@@ -161,6 +172,7 @@ BOOL CALLBACK StatusDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM
 		SendMessage(hwndDlg, WM_SYSCOMMAND, (SC_MOVE | HTCAPTION), 0);
 		return FALSE;
 	}
+
 	return FALSE;
 }
 

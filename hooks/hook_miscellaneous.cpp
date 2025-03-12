@@ -280,7 +280,7 @@ extern "C" BOOL __stdcall Hook_ShowWindow(HWND hWnd, int nCmdShow) {
 	if (mischook_debug & MISCHOOK_DEBUG_WINDOW)
 		ConsoleLog(LOG_DEBUG, "WND:  0x%08X -> ShowWindow(0x%08X, %i)\n", _ReturnAddress(), hWnd, nCmdShow);
 
-	HWND hWndStatusBar = (HWND)((DWORD*)pCwndMainWindow)[68];
+	HWND hWndStatusBar = (HWND)((DWORD*)pCWndRootWindow)[68];
 	if (hWnd == hWndStatusBar && bSettingsUseStatusDialog) {
 		if (hStatusDialog)
 			ShowWindow(hStatusDialog, SW_SHOW);
@@ -448,9 +448,9 @@ extern "C" int __stdcall Hook_CSimcityView_WM_MBUTTONDOWN(WPARAM wMouseKeys, POI
 			;
 		else if (wMouseKeys & MK_SHIFT)
 			;
-		else if (GetAsyncKeyState(VK_MENU) < 0)
-			Game_SoundPlaySound(pCWinAppThis, SOUND_CHEERS);
-		else {
+		else if (GetAsyncKeyState(VK_MENU) < 0) {
+			// useful for tests
+		} else {
 			Game_SoundPlaySound(pCWinAppThis, SOUND_CLICK);
 			Game_CenterOnTileCoords(bTileX, bTileY);
 		}
@@ -567,6 +567,15 @@ void InstallMiscHooks(void) {
 			hWeatherBitmaps[i] = hBitmap;
 		else
 			ConsoleLog(LOG_ERROR, "MISC: Couldn't load weather bitmap IDB_WEATHER%i: 0x%08X\n", i, GetLastError());
+	}
+
+	// Load compass icons
+	for (int i = 0; i < 4; i++) {
+		HANDLE hBitmap = LoadImage(hSC2KFixModule, MAKEINTRESOURCE(IDB_COMPASS0 + i), IMAGE_BITMAP, 40, 40, NULL);
+		if (hBitmap)
+			hCompassBitmaps[i] = hBitmap;
+		else
+			ConsoleLog(LOG_ERROR, "MISC: Couldn't load compass bitmap IDB_COMPASS%i: 0x%08X\n", i, GetLastError());
 	}
 
 	// Hook status bar updates for the status dialog implementation
