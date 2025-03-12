@@ -28,7 +28,22 @@
 
 #define GAMEOFF_PTR GAMEOFF_ARR
 
+#ifdef GAMEOFF_IMPL
+#define GAMECALL(address, type, conv, name, ...) \
+	typedef type (conv *GameFuncPtr_##name)(__VA_ARGS__); \
+	GameFuncPtr_##name Game_##name = (GameFuncPtr_##name)address;
+#else
+#define GAMECALL(address, type, conv, name, ...) \
+	typedef type (conv *GameFuncPtr_##name)(__VA_ARGS__);\
+	extern GameFuncPtr_##name Game_##name;
+#endif
+
+#define GAMEJMP(address) { __asm push address __asm retn }
+
+
 #define BITMASK(x) (1 << x)
+
+#define MAX_CITY_INVENTION_YEARS 17
 
 // Enums
 
@@ -725,6 +740,22 @@ typedef struct {
 } map_XLAB_t;
 
 
+// Function pointers
+
+GAMECALL(0x401096, int, __thiscall, SoundPlaySound, void*, int)
+GAMECALL(0x4019EC, int, __cdecl, CenterOnTileCoords, __int16, __int16)
+GAMECALL(0x401D16, __int16, __cdecl, GetTileCoordsFromScreenCoords, __int16, __int16)
+GAMECALL(0x4023EC, void, __stdcall, ToolMenuUpdate, void)
+GAMECALL(0x402414, int, __thiscall, MusicPlay, DWORD, int)
+GAMECALL(0x480140, void, __stdcall, LoadSoundBuffer, int, void*)
+
+
+// MFC function pointers. Use with care.
+GAMECALL(0x4017B2, void, __thiscall, RefreshTitleBar, void*)
+GAMECALL(0x40C3E0, void, __thiscall, CFrameWnd_ShowStatusBar, HWND*, HWND)
+GAMECALL(0x4AE0BC, void, __thiscall, CDocument_UpdateAllViews, void*, void*, int, void*)
+GAMECALL(0x4B234F, int, __stdcall, AfxMessageBox, unsigned int, unsigned int, unsigned int)
+
 // Pointers
 
 GAMEOFF_PTR(void, pCWinAppThis,				0x4C7010)
@@ -733,6 +764,7 @@ GAMEOFF(BOOL,	bPriscillaActivated,		0x4C7104)
 GAMEOFF(BOOL,	bOptionsMusicEnabled,		0x4C71F0)
 GAMEOFF(WORD,	wSimulationSpeed,			0x4C7318)
 GAMEOFF(WORD,	wViewRotation,				0x4C942C)
+GAMEOFF(BOOL,	bCityHasOcean,				0x4C94C0)
 GAMEOFF(DWORD,	dwArcologyPopulation,		0x4C94C4)
 GAMEOFF_PTR(char, pszCityName,				0x4CA1A0)
 GAMEOFF(WORD,	wNationalEconomyTrend,		0x4CA1BC)
@@ -769,6 +801,7 @@ GAMEOFF(BOOL,	bNewspaperSubscription,		0x4CB3D0)
 GAMEOFF(BYTE,	bWeatherHumidity,			0x4CB3D4)
 GAMEOFF(WORD,	wCityCurrentSeason,			0x4CB3E8)
 GAMEOFF(microsim_t*, pMicrosimArr,			0x4CB3EC)
+GAMEOFF(BOOL,	bCityHasRiver,				0x4CB3F8)
 GAMEOFF(WORD,	wCityDifficulty,			0x4CB404)
 GAMEOFF(BYTE,	bWeatherTrend,				0x4CB40C)
 GAMEOFF_ARR(WORD,	wCityInventionYears,	0x4CB430)
@@ -792,6 +825,7 @@ GAMEOFF(void*,	pCWinApp,					0x4CE8C0)
 // XXX - I think these ones aren't in BSS? I forget why I separated these out.
 // They'll go on the wiki as soon as I remember what the hell they do.
 GAMEOFF(DWORD,	dwSimulationSubtickCounter,	0x4E63D8)
+GAMEOFF(void*,	pCDocumentMainWindow,		0x4E66F8)
 GAMEOFF_ARR(DWORD, dwCityProgressionRequirements, 0x4E6984)
 GAMEOFF(DWORD,	dwNextRefocusSongID,		0x4E6F8C)
 GAMEOFF_ARR(DWORD, dwZoneNameStringIDs,		0x4E7140)
@@ -846,4 +880,8 @@ static inline HPALETTE GameGetPalette(void) {
 
 	// ...and this is what CDC::SelectPalette does.
 	return (HPALETTE)CPalette[1];
+}
+
+static inline HWND GameGetRootWindowHandle(void) {
+	return (HWND)((DWORD*)pCwndMainWindow)[7];
 }

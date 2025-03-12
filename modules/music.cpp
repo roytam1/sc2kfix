@@ -122,9 +122,7 @@ DWORD WINAPI MusicThread(LPVOID lpParameter) {
 						ConsoleLog(LOG_DEBUG, "MUS:  Received mciDevice 0x%08X from MCI_OPEN.\n", mciDevice);
 
 					mciDevice = mciOpenParms.wDeviceID;
-					DWORD* CWndMainWindow = (DWORD*)*(DWORD*)0x4C702C;
-					HWND hWndMainWindow = (HWND)CWndMainWindow[7];
-					MCI_PLAY_PARMS mciPlayParms = { (DWORD_PTR)hWndMainWindow, NULL, NULL };
+					MCI_PLAY_PARMS mciPlayParms = { (DWORD_PTR)GameGetRootWindowHandle(), NULL, NULL};
 					dwMCIError = mciSendCommand(mciDevice, MCI_PLAY, MCI_NOTIFY, (DWORD_PTR)&mciPlayParms);
 					// SC2K sometimes tries to run over its own sequencer device. We ignore the
 					// error that causes (0x151) just like the game itself does.
@@ -161,9 +159,7 @@ DWORD WINAPI MusicThread(LPVOID lpParameter) {
 
 extern "C" int __stdcall Hook_MusicPlay(int iSongID) {
 	UINT uThis;
-	__asm {
-		mov [uThis], ecx
-	}
+	__asm mov [uThis], ecx
 
 	// Certain songs should interrupt others
 	switch (iSongID) {
@@ -191,9 +187,7 @@ extern "C" int __stdcall Hook_MusicPlay(int iSongID) {
 
 extern "C" int __stdcall Hook_MusicStop(void) {
 	UINT uThis;
-	__asm {
-		mov[uThis], ecx
-	}
+	__asm mov [uThis], ecx
 
 	// Post the stop message to the music thread
 	PostThreadMessage(dwMusicThreadID, WM_MUSIC_STOP, NULL, NULL);
@@ -209,26 +203,17 @@ extern "C" int __stdcall Hook_MusicStop(void) {
 
 // Replaces the original MusicPlayNextRefocusSong
 extern "C" int __stdcall Hook_MusicPlayNextRefocusSong(void) {
-	UINT uThis;
+	DWORD pThis;
 	int retval, iSongToPlay;
 
 	// This is actually a __thiscall we're overriding, so save "this"
-	__asm {
-		mov[uThis], ecx
-	}
+	__asm mov [pThis], ecx
 
 	iSongToPlay = vectorRandomSongIDs[iCurrentSong++];
 	if (mus_debug & MUS_DEBUG_SONGS)
 		ConsoleLog(LOG_DEBUG, "MUS:  Playing song %i (next iCurrentSong will be %i).\n", iSongToPlay, (iCurrentSong > 8 ? 0 : iCurrentSong));
 
-	__asm {
-		mov ecx, [uThis]
-		mov edx, [iSongToPlay]
-		push edx
-		mov edx, 0x402414
-		call edx
-		mov [retval], eax
-	}
+	retval = Game_MusicPlay(pThis, iSongToPlay);
 
 	// Loop and/or shuffle.
 	if (iCurrentSong > 8) {
@@ -238,9 +223,7 @@ extern "C" int __stdcall Hook_MusicPlayNextRefocusSong(void) {
 		MusicShufflePlaylist(iSongToPlay);
 	}
 
-	__asm {
-		mov eax, [retval]
-	}
+	__asm mov eax, [retval]
 }
 
 void InstallMusicEngineHooks(void) {

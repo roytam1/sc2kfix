@@ -28,7 +28,8 @@
 #define MISCHOOK_DEBUG_DISASTERS 32
 #define MISCHOOK_DEBUG_MOVIES 64
 #define MISCHOOK_DEBUG_SMACK 128
-#define MISCHOOK_DEBUG_REGISTRY 256
+#define MISCHOOK_DEBUG_CHEAT 256
+#define MISCHOOK_DEBUG_REGISTRY 512
 
 #define MISCHOOK_DEBUG DEBUG_FLAGS_NONE
 
@@ -40,9 +41,6 @@
 UINT mischook_debug = MISCHOOK_DEBUG;
 
 static DWORD dwDummy;
-
-UINT iMilitaryBaseTries = 0;
-WORD wMilitaryBaseX = 0, wMilitaryBaseY = 0;
 
 AFX_MSGMAP_ENTRY afxMessageMapMainMenu[9];
 DLGPROC lpNewCityAfxProc = NULL;
@@ -281,8 +279,8 @@ extern "C" BOOL __stdcall Hook_EnableMenuItem(HMENU hMenu, UINT uIDEnableItem, U
 extern "C" BOOL __stdcall Hook_ShowWindow(HWND hWnd, int nCmdShow) {
 	if (mischook_debug & MISCHOOK_DEBUG_WINDOW)
 		ConsoleLog(LOG_DEBUG, "WND:  0x%08X -> ShowWindow(0x%08X, %i)\n", _ReturnAddress(), hWnd, nCmdShow);
-	DWORD* CWndMainWindow = (DWORD*)*(DWORD*)0x4C702C;
-	HWND hWndStatusBar = (HWND)CWndMainWindow[68];
+
+	HWND hWndStatusBar = (HWND)((DWORD*)pCwndMainWindow)[68];
 	if (hWnd == hWndStatusBar && bSettingsUseStatusDialog) {
 		if (hStatusDialog)
 			ShowWindow(hStatusDialog, SW_SHOW);
@@ -300,7 +298,7 @@ extern "C" DWORD __cdecl Hook_SmackOpen(LPCSTR lpFileName, uint32_t uFlags, int3
 	if (mischook_debug & MISCHOOK_DEBUG_SMACK)
 		ConsoleLog(LOG_DEBUG, "SMK:  0x%08X -> _SmackOpen(%s, %u, %i)\n", _ReturnAddress(), lpFileName, uFlags, iExBuf);
 
-	if (bSkipIntro)
+	if (bSkipIntro || bSettingsAlwaysSkipIntro)
 		if (strrchr(lpFileName, '\\'))
 			if (!strcmp(strrchr(lpFileName, '\\'), "\\INTROA.SMK") || !strcmp(strrchr(lpFileName, '\\'), "\\INTROB.SMK"))
 				return NULL;
@@ -350,74 +348,6 @@ extern "C" INT_PTR __stdcall Hook_DialogBoxParamA(HINSTANCE hInstance, LPCSTR lp
 	}
 }
 
-// Fix military bases not growing.
-// XXX - This could use a few extra lines as it's currently possible for a few placeable buildings
-// to overwrite and effectively erase military zoned tiles, and I don't know what that will do to
-// the simulation engine since it keeps meticulous track of things like that.
-//
-// We also might want to optionally add in a few more buildings to the growth algorithm for Army
-// bases, as currently Army bases only ever build 0xE8 Small Hangar and 0xEF Military Parking Lot.
-// Maybe add in 0xE3 Warehouse or 0xF1 Top Secret, since those seem to only grow on naval bases?
-extern "C" void _declspec(naked) Hook_FixMilitaryBaseGrowth(void) {
-	__asm {
-		cmp bp, 0xDD
-		jb bail
-		cmp bp, 0xF9
-		ja bail
-		push 0x440D55					// Maxim 43:
-		retn							// "If it's stupid and it works...
-	bail:
-		push 0x440E00					// ...it's still stupid and you're *lucky*."
-		retn							//    - The Seventy Maxims of Maximally Effective Mercenaries
-	}
-}
-
-// Hook to reset iMilitaryBaseTries if needed (new/loaded game, gilmartin)
-extern "C" void _declspec(naked) Hook_SimulationProposeMilitaryBase(void) {
-	if (mischook_debug & MISCHOOK_DEBUG_MILITARY)
-		ConsoleLog(LOG_DEBUG, "MISC: SimulationProposeMilitaryBase called, resetting iMilitaryBaseTries.\n");
-	iMilitaryBaseTries = 0;
-	__asm {
-		push 0x4142C0
-		retn
-	}
-}
-
-// Fix the game giving up after one attempt at placing a military base.
-// 10 tries was enough to get an army base to spawn in the smallest crags of a map with a maxed-
-// out mountain slider, so that's what we're going with here.
-extern "C" void _declspec(naked) Hook_AttemptMultipleMilitaryBases(void) {
-	if (iMilitaryBaseTries++ < 10) {
-		if (mischook_debug & MISCHOOK_DEBUG_MILITARY)
-			ConsoleLog(LOG_DEBUG, "MISC: Failed military base placement, attempting again.\n");
-		__asm {
-			push 0x4142E9
-			retn
-		}
-	} else {
-		__asm {
-			push 0x4147AF
-			retn
-		}
-	}
-}
-
-// Quick detour to pull the top-left corner coordinates of a spawned military base.
-extern "C" void _declspec(naked) Hook_41442E(void) {
-	__asm {
-		mov edx, 0x4B234F				// AfxMessageBox
-		call edx
-
-		mov edx, [esp + 0x5C - 0x38]
-		mov word ptr [wMilitaryBaseX], dx
-		mov edx, [esp + 0x5C - 0x34]
-		mov word ptr [wMilitaryBaseY], dx
-
-		push 0x414433
-		retn
-	}
-}
-
 // Fix rail and highway border connections not loading properly
 extern "C" void __stdcall Hook_LoadNeighborConnections1500(void) {
 	short* wCityNeighborConnections1500 = (short*)0x4CA3F0;
@@ -451,28 +381,17 @@ extern "C" char* __stdcall Hook_40D67D(void) {
 
 
 // Window title hook, part 2 and refresh hook
-extern "C" void _declspec(naked) Hook_4315D2(void) {
-	__asm {
-		// Update title bar
-		push edx
-		mov edx, 0x4E66F8
-		mov ecx, [edx]
-		mov edx, 0x4017B2
-		call edx
+// TODO: Clean this hook up to be as pure C/C++ as possible. I'm sure we can make it nice and
+// clean, I just need more time to fiddle with it.
+extern "C" void _declspec(naked) Hook_SimulationProcessTickDaySwitch(void) {
+	__asm push edx
 
-		cmp [bSettingsFrequentCityRefresh], 0
-		je skip_refresh
+	Game_RefreshTitleBar(pCDocumentMainWindow);
 
-		// Refresh view for growth
-		mov edx, 0x4E66F8
-		mov ecx, [edx]
-		push 0
-		push 2
-		push 0
-		mov edx, 0x4AE0BC
-		call edx
+	if (bSettingsFrequentCityRefresh)
+		Game_CDocument_UpdateAllViews(pCDocumentMainWindow, NULL, 2, NULL);
 
-	skip_refresh:
+__asm {
 		pop edx
 		cmp edx, 24
 		ja def
@@ -480,7 +399,7 @@ extern "C" void _declspec(naked) Hook_4315D2(void) {
 		push 0x4135DB
 		retn
 
-	def:
+def:
 		push 0x413ABF
 		retn
 	}
@@ -490,10 +409,7 @@ extern "C" void _declspec(naked) Hook_SimulationStartDisaster(void) {
 	if (mischook_debug & MISCHOOK_DEBUG_DISASTERS)
 		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> SimulationStartDisaster(), wDisasterType = %u.\n", _ReturnAddress(), wDisasterType);
 
-	__asm {
-		push 0x45CF10
-		retn
-	}
+	GAMEJMP(0x45CF10)
 }
 
 extern "C" int __cdecl Hook_SimulationPrepareDisaster(DWORD* a1, __int16 a2, __int16 a3) {
@@ -506,10 +422,45 @@ extern "C" int __cdecl Hook_SimulationPrepareDisaster(DWORD* a1, __int16 a2, __i
 	return a2;
 }
 
+extern "C" int __stdcall Hook_AddAllInventions(void) {
+	if (mischook_debug & MISCHOOK_DEBUG_CHEAT)
+		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> AddAllInventions()\n", _ReturnAddress());
+
+	memset(wCityInventionYears, 0, sizeof(WORD)*MAX_CITY_INVENTION_YEARS);
+	Game_ToolMenuUpdate();
+	Game_SoundPlaySound(pCWinAppThis, SOUND_ZAP);
+
+	return 0;
+}
+
+// Hook the middle mouse button as a centering tool shortcut
+extern "C" int __stdcall Hook_CSimcityView_WM_MBUTTONDOWN(WPARAM wMouseKeys, POINT pt) {
+	__int16 wTileCoords = 0;
+	BYTE bTileX = 0, bTileY = 0;
+	wTileCoords = Game_GetTileCoordsFromScreenCoords(pt.x, pt.y);
+	bTileX = LOBYTE(wTileCoords);
+	bTileY = HIBYTE(wTileCoords);
+
+	if (wTileCoords & 0x8000)
+		return wTileCoords;
+	else {
+		if (wMouseKeys & MK_CONTROL)
+			;
+		else if (wMouseKeys & MK_SHIFT)
+			;
+		else if (GetAsyncKeyState(VK_MENU) < 0)
+			Game_SoundPlaySound(pCWinAppThis, SOUND_CHEERS);
+		else {
+			Game_SoundPlaySound(pCWinAppThis, SOUND_CLICK);
+			Game_CenterOnTileCoords(bTileX, bTileY);
+		}
+	}
+	return wTileCoords;
+}
+
 // Install hooks and run code that we only want to do for the 1996 Special Edition SIMCITY.EXE.
 // This should probably have a better name. And maybe be broken out into smaller functions.
 void InstallMiscHooks(void) {
-
 	// Install RegQueryValueExA
 	*(DWORD*)(0x4EF800) = (DWORD)Hook_RegQueryValueExA;
 
@@ -570,19 +521,8 @@ void InstallMiscHooks(void) {
 	NEWCALL((LPVOID)0x434BEA, Hook_LoadNeighborConnections1500);
 	*(BYTE*)0x434BEF = 0x90;
 
-	// Fix military bases not growing
-	VirtualProtect((LPVOID)0x440D4F, 6, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJZ((LPVOID)0x440D4F, Hook_FixMilitaryBaseGrowth);
-
-	// Make multiple attempts at building a military base before giving up
-	VirtualProtect((LPVOID)0x4146B5, 6, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJNZ((LPVOID)0x4146B5, Hook_AttemptMultipleMilitaryBases);
-	VirtualProtect((LPVOID)0x403017, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x403017, Hook_SimulationProposeMilitaryBase);
-
-	// Store the coordinates of the military base
-	VirtualProtect((LPVOID)0x41442E, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x41442E, Hook_41442E);
+	// Military base hooks
+	InstallMilitaryHooks();
 
 	// Move the alt+query bottom text to not be blocked by the OK button
 	VirtualProtect((LPVOID)0x428FB1, 3, PAGE_EXECUTE_READWRITE, &dwDummy);
@@ -642,7 +582,7 @@ void InstallMiscHooks(void) {
 	NEWCALL((LPVOID)0x40D67D, Hook_40D67D);
 	memset((LPVOID)0x40D682, 0x90, 5);
 	VirtualProtect((LPVOID)0x4135D2, 9, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x4135D2, Hook_4315D2);
+	NEWJMP((LPVOID)0x4135D2, Hook_SimulationProcessTickDaySwitch);
 	memset((LPVOID)0x4135D7, 0x90, 4);
 
 	// Hook SimulationStartDisaster
@@ -653,9 +593,14 @@ void InstallMiscHooks(void) {
 	VirtualProtect((LPVOID)0x40174E, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
 	NEWJMP((LPVOID)0x40174E, Hook_SimulationPrepareDisaster);
 
+	// Hook AddAllInventions
+	VirtualProtect((LPVOID)0x402388, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
+	NEWJMP((LPVOID)0x402388, Hook_AddAllInventions);
+
 	// Add settings buttons to SC2K's menus
 	hGameMenu = LoadMenu(hSC2KAppModule, MAKEINTRESOURCE(3));
 	if (hGameMenu) {
+		AFX_MSGMAP_ENTRY afxMessageMapEntry;
 		HMENU hOptionsPopup;
 		MENUITEMINFO miiOptionsPopup;
 		miiOptionsPopup.cbSize = sizeof(MENUITEMINFO);
@@ -673,12 +618,8 @@ void InstallMiscHooks(void) {
 			ConsoleLog(LOG_DEBUG, "MISC: AppendMenuA #2 failed, error = 0x%08X.\n", GetLastError());
 			goto skipmenu;
 		}
-		if (!AppendMenu(hOptionsPopup, MF_STRING, 40001, "Show Status Dialog") && mischook_debug & MISCHOOK_DEBUG_MENU) {
-			ConsoleLog(LOG_DEBUG, "MISC: AppendMenuA #3 failed, error = 0x%08X.\n", GetLastError());
-			goto skipmenu;
-		}
 
-		AFX_MSGMAP_ENTRY afxMessageMapEntry = {
+		afxMessageMapEntry = {
 			WM_COMMAND,
 			0,
 			40000,
@@ -689,19 +630,23 @@ void InstallMiscHooks(void) {
 		VirtualProtect((LPVOID)0x4D45C0, sizeof(afxMessageMapEntry), PAGE_EXECUTE_READWRITE, &dwDummy);
 		memcpy_s((LPVOID)0x4D45C0, sizeof(afxMessageMapEntry), &afxMessageMapEntry, sizeof(afxMessageMapEntry));
 
-		afxMessageMapEntry = {
-			WM_COMMAND,
-			0,
-			40001,
-			40001,
-			0x0A,
-			ShowStatusDialog
-		};
-		VirtualProtect((LPVOID)0x4D45D8, sizeof(afxMessageMapEntry), PAGE_EXECUTE_READWRITE, &dwDummy);
-		memcpy_s((LPVOID)0x4D45D8, sizeof(afxMessageMapEntry), &afxMessageMapEntry, sizeof(afxMessageMapEntry));
 		if (mischook_debug & MISCHOOK_DEBUG_MENU)
 			ConsoleLog(LOG_DEBUG, "MISC: Updated game menu.\n");
 	}
+
+skipmenu:
+
+	// Add hook to center with the middle mouse button
+	AFX_MSGMAP_ENTRY afxMessageMapEntrySimCityView = {
+		WM_MBUTTONDOWN,
+		0,
+		0,
+		0,
+		0x2A,
+		Hook_CSimcityView_WM_MBUTTONDOWN
+	};
+	VirtualProtect((LPVOID)0x4D45D8, sizeof(afxMessageMapEntrySimCityView), PAGE_EXECUTE_READWRITE, &dwDummy);
+	memcpy_s((LPVOID)0x4D45D8, sizeof(afxMessageMapEntrySimCityView), &afxMessageMapEntrySimCityView, sizeof(afxMessageMapEntrySimCityView));
 
 	// Copy the main menu's message map and update the runtime class to use it
 	VirtualProtect((LPVOID)0x4D513C, 4, PAGE_EXECUTE_READWRITE, &dwDummy);
@@ -721,7 +666,6 @@ void InstallMiscHooks(void) {
 	NEWJMP(0x41503F, 0x415161);
 	*(BYTE*)0x415044 = 0x90;
 
-skipmenu:
 	// Part two!
 	UpdateMiscHooks();
 }

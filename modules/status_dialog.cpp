@@ -26,9 +26,8 @@ static COLORREF crStatusColor = RGB(0, 0, 0);
 static HBRUSH hBrushBkg = NULL;
 
 extern "C" int __stdcall Hook_402793(int iStatic, char* szText, int iMaybeAlways1, COLORREF crColor) {
-	__asm {
-		push ecx
-	}
+	__asm push ecx
+
 	if (hStatusDialog) {
 		if (iStatic == 0) {
 			char szCurrentText[200];
@@ -71,36 +70,46 @@ extern "C" int __stdcall Hook_402793(int iStatic, char* szText, int iMaybeAlways
 	}
 }
 
-extern "C" int __stdcall Hook_4021A8(int iShow) {
-	__asm {
-		push ecx
-	}
+extern "C" int __stdcall Hook_4021A8(HWND iShow) {
+	HWND* iThis;
+	__asm mov [iThis], ecx
 
-	int iActualShow = iShow;
+	HWND iActualShow = iShow;
 
 	if (bSettingsUseStatusDialog)
 		iActualShow = 0;
 
-	if (hStatusDialog)
-		ShowWindow(hStatusDialog, iShow ? 5 : 0);
+	if (hStatusDialog) {
+		int iCmdShow;
+
+		if (!wCityMode) {
+			iCmdShow = SW_HIDE;
+		}
+		else {
+			iCmdShow = (iShow) ? SW_SHOW : SW_HIDE;
+		}
+		ShowWindow(hStatusDialog, iCmdShow);
+	}
 	else if (bSettingsUseStatusDialog)
 		ShowStatusDialog();
 
-	__asm {
-		pop ecx
-		push [iActualShow]
-		mov edi, 0x40C3E0
-		call edi
-	}
+	Game_CFrameWnd_ShowStatusBar(iThis, iActualShow);
 }
 
 extern "C" int __stdcall Hook_40103C(int iShow) {
-	__asm {
-		push ecx
-	}
+	__asm push ecx
 
-	if (hStatusDialog)
-		ShowWindow(hStatusDialog, iShow ? 5 : 0);
+	if (hStatusDialog) {
+		int iCmdShow;
+		
+		if (!wCityMode) {
+			iCmdShow = SW_HIDE;
+		}
+		else {
+			iCmdShow = (iShow) ? SW_SHOW : SW_HIDE;
+		}
+		ShowWindow(hStatusDialog, iCmdShow);
+	}
 
 	__asm {
 		pop ecx
@@ -156,12 +165,10 @@ BOOL CALLBACK StatusDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM
 }
 
 HWND ShowStatusDialog(void) {
-	DWORD* CWndMainWindow = (DWORD*)*(DWORD*)0x4C702C;	// god this is awful
-
 	if (hStatusDialog)
 		return hStatusDialog;
 
-	hStatusDialog = CreateDialogParam(hSC2KFixModule, MAKEINTRESOURCE(IDD_SIMULATIONSTATUS), (HWND)(CWndMainWindow[7]), StatusDialogProc, NULL);
+	hStatusDialog = CreateDialogParam(hSC2KFixModule, MAKEINTRESOURCE(IDD_SIMULATIONSTATUS), GameGetRootWindowHandle(), StatusDialogProc, NULL);
 	if (!hStatusDialog) {
 		ConsoleLog(LOG_ERROR, "CORE: Couldn't create status dialog: 0x%08X\n", GetLastError());
 		return NULL;
