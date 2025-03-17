@@ -62,6 +62,7 @@
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="include\json.hpp" />
     <ClInclude Include="include\music.h" />
     <ClInclude Include="include\sc2kfix.h" />
     <ClInclude Include="include\smk.h" />
@@ -79,8 +80,8 @@
     <ClCompile Include="hooks\hook_mmtimers.cpp" />
     <ClCompile Include="modules\military.cpp" />
     <ClCompile Include="modules\music.cpp" />
+    <ClCompile Include="modules\registry_config.cpp" />
     <ClCompile Include="modules\sc2k_1996.cpp" />
-    <ClCompile Include="modules\registry_install.cpp" />
     <ClCompile Include="modules\scurkfix.cpp" />
     <ClCompile Include="modules\settings.cpp" />
     <ClCompile Include="modules\status_dialog.cpp" />

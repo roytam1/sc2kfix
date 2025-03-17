@@ -1,10 +1,12 @@
-// sc2kfix settings.cpp: settings dialog code and configurator
+// sc2kfix modules/settings.cpp: settings dialog code and configurator
 // (c) 2025 sc2kfix project (https://sc2kfix.net) - released under the MIT license
 
 #undef UNICODE
 #include <windows.h>
 #include <windowsx.h>
+#include <psapi.h>
 #include <commctrl.h>
+#include <shlwapi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
@@ -13,6 +15,8 @@
 #include "../resource.h"
 
 static DWORD dwDummy;
+
+char szGamePath[MAX_PATH];
 
 char szSettingsMayorName[64];
 char szSettingsCompanyName[64];
@@ -26,244 +30,116 @@ BOOL bSettingsUseMP3Music = FALSE;
 
 BOOL bSettingsAlwaysConsole = FALSE;
 BOOL bSettingsCheckForUpdates = TRUE;
+BOOL bSettingsDontLoadMods = FALSE;
 
 BOOL bSettingsUseStatusDialog = FALSE;
 BOOL bSettingsTitleCalendar = TRUE;
 BOOL bSettingsUseNewStrings = TRUE;
-BOOL bSettingsUseLocalMovies = TRUE;
 BOOL bSettingsAlwaysSkipIntro = FALSE;
 
-BOOL bSettingsMilitaryBaseRevenue = FALSE;	// NYI
-BOOL bSettingsFixOrdinances = FALSE;		// NYI
+void SetGamePath(void) {
+	char szModulePathName[MAX_PATH];
+	GetModuleFileNameEx(GetCurrentProcess(), NULL, szModulePathName, MAX_PATH);
 
-#if 1
-typedef LSTATUS(WINAPI *MDBX_RegGetValueA)(HKEY hKey, LPCSTR lpSubKey,
-                                           LPCSTR lpValue, DWORD dwFlags,
-                                           LPDWORD pdwType, PVOID pvData,
-                                           LPDWORD pcbData);
-static MDBX_RegGetValueA mdbx_RegGetValueA = NULL;
-static int mdbx_RegGetValueA_tried = 0;
-
-static LSTATUS _RegGetValue(HKEY hKey, LPCSTR lpSubKey, LPCSTR lpValue, DWORD dwFlags, LPDWORD pdwType,
-                                PVOID pvData, LPDWORD pcbData) {
-  LSTATUS rc;
-  if(!mdbx_RegGetValueA_tried) {
-    mdbx_RegGetValueA = (MDBX_RegGetValueA)GetProcAddress(LoadLibraryA("advapi32.dll"), "RegGetValueA");
-    mdbx_RegGetValueA_tried = 1;
-  }
-
-  if (!mdbx_RegGetValueA) {
-    /* an old Windows 2000/XP */
-    HKEY hSubKey;
-    if (lpSubKey) {
-        rc = RegOpenKeyA(hKey, lpSubKey, &hSubKey);
-    } else { /* lpSubKey is null, so use hKey directly, don't close it */
-        hSubKey = hKey;
-        rc = ERROR_SUCCESS;
-    }
-    if (rc == ERROR_SUCCESS) {
-      rc = RegQueryValueExA(hSubKey, lpValue, NULL, pdwType, (LPBYTE)pvData, pcbData);
-      if (lpSubKey) RegCloseKey(hSubKey);
-    }
-    return rc;
-  }
-
-  rc = mdbx_RegGetValueA(hKey, lpSubKey, lpValue, dwFlags, pdwType, pvData,
-                         pcbData);
-  if (rc != ERROR_FILE_NOT_FOUND)
-    return rc;
-
-  rc = mdbx_RegGetValueA(hKey, lpSubKey, lpValue,
-                         dwFlags | 0x00010000 /* RRF_SUBKEY_WOW6464KEY */,
-                         pdwType, pvData, pcbData);
-  if (rc != ERROR_FILE_NOT_FOUND)
-    return rc;
-  return mdbx_RegGetValueA(hKey, lpSubKey, lpValue,
-                           dwFlags | 0x00020000 /* RRF_SUBKEY_WOW6432KEY */,
-                           pdwType, pvData, pcbData);
+	PathRemoveFileSpecA(szModulePathName);
+	strcpy_s(szGamePath, MAX_PATH, szModulePathName);
 }
-#else
-#define _RegGetValue RegGetValue
-#endif
+
+const char *GetIniPath() {
+	static char szIniPath[MAX_PATH];
+
+	sprintf_s(szIniPath, MAX_PATH, "%s\\%s", szGamePath, SC2KFIX_INIFILE);
+	return szIniPath;
+}
+
+static void MigrateSC2KFixSettings(void) {
+	MigrateRegBOOLValue(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\sc2kfix", "bSettingsMusicInBackground", &bSettingsMusicInBackground);
+	MigrateRegBOOLValue(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\sc2kfix", "bSettingsUseSoundReplacements", &bSettingsUseSoundReplacements);
+	MigrateRegBOOLValue(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\sc2kfix", "bSettingsShuffleMusic", &bSettingsShuffleMusic);
+	MigrateRegBOOLValue(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\sc2kfix", "bSettingsUseMultithreadedMusic", &bSettingsUseMultithreadedMusic);
+	MigrateRegBOOLValue(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\sc2kfix", "bSettingsFrequentCityRefresh", &bSettingsFrequentCityRefresh);
+	MigrateRegBOOLValue(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\sc2kfix", "bSettingsUseMP3Music", &bSettingsUseMP3Music);
+
+	MigrateRegBOOLValue(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\sc2kfix", "bSettingsAlwaysConsole", &bSettingsAlwaysConsole);
+	MigrateRegBOOLValue(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\sc2kfix", "bSettingsCheckForUpdates", &bSettingsCheckForUpdates);
+
+	MigrateRegBOOLValue(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\sc2kfix", "bSettingsUseStatusDialog", &bSettingsUseStatusDialog);
+	MigrateRegBOOLValue(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\sc2kfix", "bSettingsTitleCalendar", &bSettingsTitleCalendar);
+	MigrateRegBOOLValue(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\sc2kfix", "bSettingsUseNewStrings", &bSettingsUseNewStrings);
+	MigrateRegBOOLValue(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\sc2kfix", "bSettingsAlwaysSkipIntro", &bSettingsAlwaysSkipIntro);
+}
 
 void LoadSettings(void) {
-	HKEY hkeySC2KRegistration;
-	LSTATUS lResultRegistration = RegCreateKeyEx(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\Registration", NULL, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hkeySC2KRegistration, NULL);
-	if (lResultRegistration != ERROR_SUCCESS) {
-		MessageBox(NULL, "Couldn't open registry keys for editing", "sc2kfix error", MB_OK | MB_ICONEXCLAMATION);
-		ConsoleLog(LOG_ERROR, "CORE: Couldn't open registry keys for settings load, error = 0x%08X\n", lResultRegistration);
-		return;
+	const char *ini_file = GetIniPath();
+	const char *section = "Registration";
+	GetPrivateProfileStringA(section, "Mayor Name", "", szSettingsMayorName, sizeof(szSettingsMayorName)-1, ini_file);
+	GetPrivateProfileStringA(section, "Company Name", "", szSettingsCompanyName, sizeof(szSettingsCompanyName)-1, ini_file);
+
+	section = "sc2kfix";
+	char szSectionBuf[32];
+
+	// Check for the section presence.
+	if (!GetPrivateProfileSectionA(section, szSectionBuf, sizeof(szSectionBuf) - 1, ini_file)) {
+		// Check to see whether the values existed in the registry so they can be migrated.
+		MigrateSC2KFixSettings();
 	}
-
-	DWORD dwMayorNameSize = 64;
-	DWORD dwCompanyNameSize = 64;
-	LSTATUS retval = ERROR_SUCCESS;
-
-	retval = _RegGetValue(hkeySC2KRegistration, NULL, "Mayor Name", RRF_RT_REG_SZ, NULL, (LPBYTE)szSettingsMayorName, &dwMayorNameSize);
-	switch (retval) {
-	case ERROR_SUCCESS:
-		break;
-	default:
-		strcpy_s(szSettingsMayorName, "Marvin Maxis");
-		char* buf;
-		FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, retval, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR)&buf, 0, NULL);
-		ConsoleLog(LOG_WARNING, "CORE: Error %s loading mayor name; resetting to default.\n", buf);
-		break;
-	}
-
-	retval = _RegGetValue(hkeySC2KRegistration, NULL, "Company Name", RRF_RT_REG_SZ, NULL, (LPBYTE)szSettingsCompanyName, &dwCompanyNameSize);
-	switch (retval) {
-	case ERROR_SUCCESS:
-		break;
-	default:
-		strcpy_s(szSettingsCompanyName, "Q37 Space Modulator Mfg.");
-		char* buf;
-		FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, retval, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR)&buf, 0, NULL);
-		ConsoleLog(LOG_WARNING, "CORE: Error %s loading company name; resetting to default.\n", buf);
-		break;
-	}
-
-	HKEY hkeySC2KFix;
-	RegCreateKeyEx(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\sc2kfix", NULL, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hkeySC2KFix, NULL);
 
 	// QoL/performance settings
+	bSettingsMusicInBackground = GetPrivateProfileIntA(section, "bSettingsMusicInBackground", bSettingsMusicInBackground, ini_file);
+	bSettingsUseSoundReplacements = GetPrivateProfileIntA(section, "bSettingsUseSoundReplacements", bSettingsUseSoundReplacements, ini_file);
+	bSettingsShuffleMusic = GetPrivateProfileIntA(section, "bSettingsShuffleMusic", bSettingsShuffleMusic, ini_file);
+	bSettingsUseMultithreadedMusic = GetPrivateProfileIntA(section, "bSettingsUseMultithreadedMusic", bSettingsUseMultithreadedMusic, ini_file);
+	bSettingsFrequentCityRefresh = GetPrivateProfileIntA(section, "bSettingsFrequentCityRefresh", bSettingsFrequentCityRefresh, ini_file);
+	bSettingsUseMP3Music = GetPrivateProfileIntA(section, "bSettingsUseMP3Music", bSettingsUseMP3Music, ini_file);
 
-	DWORD dwSizeofBool = sizeof(BOOL);
-	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsMusicInBackground", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsMusicInBackground, &dwSizeofBool) != ERROR_SUCCESS) {
-		bSettingsMusicInBackground = TRUE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsMusicInBackground", NULL, REG_DWORD, (BYTE*)&bSettingsMusicInBackground, sizeof(BOOL));
-	}
-
-	dwSizeofBool = sizeof(BOOL);
-	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsUseSoundReplacements", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsUseSoundReplacements, &dwSizeofBool)) {
-		bSettingsUseSoundReplacements = TRUE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsUseSoundReplacements", NULL, REG_DWORD, (BYTE*)&bSettingsUseSoundReplacements, sizeof(BOOL));
-	}
-
-	dwSizeofBool = sizeof(BOOL);
-	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsShuffleMusic", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsShuffleMusic, &dwSizeofBool)) {
-		bSettingsShuffleMusic = FALSE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsShuffleMusic", NULL, REG_DWORD, (BYTE*)&bSettingsShuffleMusic, sizeof(BOOL));
-	}
-
-	dwSizeofBool = sizeof(BOOL);
-	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsUseMultithreadedMusic", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsUseMultithreadedMusic, &dwSizeofBool)) {
-		bSettingsUseMultithreadedMusic = TRUE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsUseMultithreadedMusic", NULL, REG_DWORD, (BYTE*)&bSettingsUseMultithreadedMusic, sizeof(BOOL));
-	}
-
-	dwSizeofBool = sizeof(BOOL);
-	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsFrequentCityRefresh", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsFrequentCityRefresh, &dwSizeofBool)) {
-		bSettingsFrequentCityRefresh = TRUE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsFrequentCityRefresh", NULL, REG_DWORD, (BYTE*)&bSettingsFrequentCityRefresh, sizeof(BOOL));
-	}
-
-	dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsUseMP3Music", RRF_RT_REG_DWORD, NULL, &bSettingsUseMP3Music, &dwSizeofBool)) {
-		bSettingsUseMP3Music = FALSE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsUseMP3Music", NULL, REG_DWORD, (BYTE*)&bSettingsUseMP3Music, sizeof(BOOL));
-	}
-
-	// sc2kfix settings
-
-	dwSizeofBool = sizeof(BOOL);
-	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsAlwaysConsole", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsAlwaysConsole, &dwSizeofBool)) {
-		bSettingsAlwaysConsole = FALSE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsAlwaysConsole", NULL, REG_DWORD, (BYTE*)&bSettingsAlwaysConsole, sizeof(BOOL));
-	}
-
-	dwSizeofBool = sizeof(BOOL);
-	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsCheckForUpdates", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsCheckForUpdates, &dwSizeofBool)) {
-		bSettingsCheckForUpdates = TRUE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsCheckForUpdates", NULL, REG_DWORD, (BYTE*)&bSettingsCheckForUpdates, sizeof(BOOL));
-	}
+	// Internal settings
+	bSettingsAlwaysConsole = GetPrivateProfileIntA(section, "bSettingsAlwaysConsole", bSettingsAlwaysConsole, ini_file);
+	bSettingsCheckForUpdates = GetPrivateProfileIntA(section, "bSettingsCheckForUpdates", bSettingsCheckForUpdates, ini_file);
+	bSettingsDontLoadMods = GetPrivateProfileIntA(section, "bSettingsDontLoadMods", bSettingsDontLoadMods, ini_file);
 
 	// Interface settings
+	bSettingsUseStatusDialog = GetPrivateProfileIntA(section, "bSettingsUseStatusDialog", bSettingsUseStatusDialog, ini_file);
+	bSettingsTitleCalendar = GetPrivateProfileIntA(section, "bSettingsTitleCalendar", bSettingsTitleCalendar, ini_file);
+	bSettingsUseNewStrings = GetPrivateProfileIntA(section, "bSettingsUseNewStrings", bSettingsUseNewStrings, ini_file);
+	bSettingsAlwaysSkipIntro = GetPrivateProfileIntA(section, "bSettingsAlwaysSkipIntro", bSettingsAlwaysSkipIntro, ini_file);
 
-	dwSizeofBool = sizeof(BOOL);
-	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsUseStatusDialog", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsUseStatusDialog, &dwSizeofBool)) {
-		bSettingsUseStatusDialog = FALSE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsUseStatusDialog", NULL, REG_DWORD, (BYTE*)&bSettingsUseStatusDialog, sizeof(BOOL));
-	}
-
-	dwSizeofBool = sizeof(BOOL);
-	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsTitleCalendar", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsTitleCalendar, &dwSizeofBool)) {
-		bSettingsTitleCalendar = TRUE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsTitleCalendar", NULL, REG_DWORD, (BYTE*)&bSettingsTitleCalendar, sizeof(BOOL));
-	}
-
-	dwSizeofBool = sizeof(BOOL);
-	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsUseNewStrings", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsUseNewStrings, &dwSizeofBool)) {
-		bSettingsUseNewStrings = TRUE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsUseNewStrings", NULL, REG_DWORD, (BYTE*)&bSettingsUseNewStrings, sizeof(BOOL));
-	}
-
-	dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsUseLocalMovies", RRF_RT_REG_DWORD, NULL, &bSettingsUseLocalMovies, &dwSizeofBool)) {
-		bSettingsUseLocalMovies = TRUE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsUseLocalMovies", NULL, REG_DWORD, (BYTE*)&bSettingsUseLocalMovies, sizeof(BOOL));
-	}
-
-	dwSizeofBool = sizeof(BOOL);
-	if (RegGetValue(hkeySC2KFix, NULL, "bSettingsAlwaysSkipIntro", RRF_RT_REG_DWORD, NULL, &bSettingsAlwaysSkipIntro, &dwSizeofBool)) {
-		bSettingsAlwaysSkipIntro = FALSE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsAlwaysSkipIntro", NULL, REG_DWORD, (BYTE*)&bSettingsAlwaysSkipIntro, sizeof(BOOL));
-	}
-
-	// Gameplay mods
-
-	dwSizeofBool = sizeof(BOOL);
-	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsMilitaryBaseRevenue", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsMilitaryBaseRevenue, &dwSizeofBool)) {
-		bSettingsMilitaryBaseRevenue = FALSE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsMilitaryBaseRevenue", NULL, REG_DWORD, (BYTE*)&bSettingsMilitaryBaseRevenue, sizeof(BOOL));
-	}
-
-	dwSizeofBool = sizeof(BOOL);
-	if (_RegGetValue(hkeySC2KFix, NULL, "bSettingsFixOrdinances", RRF_RT_REG_DWORD, NULL, (LPBYTE)&bSettingsFixOrdinances, &dwSizeofBool)) {
-		bSettingsFixOrdinances = FALSE;
-		RegSetValueEx(hkeySC2KFix, "bSettingsFixOrdinances", NULL, REG_DWORD, (BYTE*)&bSettingsFixOrdinances, sizeof(BOOL));
-	}
+	SaveSettings(TRUE);
 }
 
-void SaveSettings(void) {
-	HKEY hkeySC2KRegistration;
-	LSTATUS lResultRegistration = RegCreateKeyEx(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\Registration", NULL, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hkeySC2KRegistration, NULL);
-	if (lResultRegistration != ERROR_SUCCESS) {
-		MessageBox(NULL, "Couldn't open registry keys for editing", "sc2kfix error", MB_OK | MB_ICONEXCLAMATION);
-		ConsoleLog(LOG_ERROR, "CORE: Couldn't open registry keys for registry check, error = 0x%08X\n", lResultRegistration);
-		return;
-	}
+void SaveSettings(BOOL onload) {
+	const char *ini_file = GetIniPath();
+	const char *section = "Registration";
 
-	// Write registration strings
-	RegSetValueEx(hkeySC2KRegistration, "Mayor Name", NULL, REG_SZ, (BYTE*)szSettingsMayorName, strlen(szSettingsMayorName) + 1);
-	RegSetValueEx(hkeySC2KRegistration, "Company Name", NULL, REG_SZ, (BYTE*)szSettingsCompanyName, strlen(szSettingsCompanyName) + 1);
+	WritePrivateProfileStringA(section, "Mayor Name", szSettingsMayorName, ini_file);
+	WritePrivateProfileStringA(section, "Company Name", szSettingsCompanyName, ini_file);
 
-	HKEY hkeySC2KFix;
-	RegCreateKeyEx(HKEY_CURRENT_USER, "Software\\Maxis\\SimCity 2000\\sc2kfix", NULL, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hkeySC2KFix, NULL);
+	section = "sc2kfix";
 
-	// Write sc2kfix settings
-	RegSetValueEx(hkeySC2KFix, "bSettingsMusicInBackground", NULL, REG_DWORD, (BYTE*)&bSettingsMusicInBackground, sizeof(BOOL));
-	RegSetValueEx(hkeySC2KFix, "bSettingsUseSoundReplacements", NULL, REG_DWORD, (BYTE*)&bSettingsUseSoundReplacements, sizeof(BOOL));
-	RegSetValueEx(hkeySC2KFix, "bSettingsShuffleMusic", NULL, REG_DWORD, (BYTE*)&bSettingsShuffleMusic, sizeof(BOOL));
-	RegSetValueEx(hkeySC2KFix, "bSettingsUseMultithreadedMusic", NULL, REG_DWORD, (BYTE*)&bSettingsUseMultithreadedMusic, sizeof(BOOL));
-	RegSetValueEx(hkeySC2KFix, "bSettingsFrequentCityRefresh", NULL, REG_DWORD, (BYTE*)&bSettingsFrequentCityRefresh, sizeof(BOOL));
-	RegSetValueEx(hkeySC2KFix, "bSettingsUseMP3Music", NULL, REG_DWORD, (BYTE*)&bSettingsUseMP3Music, sizeof(BOOL));
+	// QoL/performance settings
+	WritePrivateProfileIntA(section, "bSettingsMusicInBackground", bSettingsMusicInBackground, ini_file);
+	WritePrivateProfileIntA(section, "bSettingsUseSoundReplacements", bSettingsUseSoundReplacements, ini_file);
+	WritePrivateProfileIntA(section, "bSettingsShuffleMusic", bSettingsShuffleMusic, ini_file);
+	WritePrivateProfileIntA(section, "bSettingsUseMultithreadedMusic", bSettingsUseMultithreadedMusic, ini_file);
+	WritePrivateProfileIntA(section, "bSettingsFrequentCityRefresh", bSettingsFrequentCityRefresh, ini_file);
+	WritePrivateProfileIntA(section, "bSettingsUseMP3Music", bSettingsUseMP3Music, ini_file);
 
-	RegSetValueEx(hkeySC2KFix, "bSettingsAlwaysConsole", NULL, REG_DWORD, (BYTE*)&bSettingsAlwaysConsole, sizeof(BOOL));
-	RegSetValueEx(hkeySC2KFix, "bSettingsCheckForUpdates", NULL, REG_DWORD, (BYTE*)&bSettingsCheckForUpdates, sizeof(BOOL));
+	// Internal settings
+	WritePrivateProfileIntA(section, "bSettingsAlwaysConsole", bSettingsAlwaysConsole, ini_file);
+	WritePrivateProfileIntA(section, "bSettingsCheckForUpdates", bSettingsCheckForUpdates, ini_file);
+	WritePrivateProfileIntA(section, "bSettingsDontLoadMods", bSettingsDontLoadMods, ini_file);
 
-	RegSetValueEx(hkeySC2KFix, "bSettingsUseStatusDialog", NULL, REG_DWORD, (BYTE*)&bSettingsUseStatusDialog, sizeof(BOOL));
-	RegSetValueEx(hkeySC2KFix, "bSettingsTitleCalendar", NULL, REG_DWORD, (BYTE*)&bSettingsTitleCalendar, sizeof(BOOL));
-	RegSetValueEx(hkeySC2KFix, "bSettingsUseNewStrings", NULL, REG_DWORD, (BYTE*)&bSettingsUseNewStrings, sizeof(BOOL));
-	RegSetValueEx(hkeySC2KFix, "bSettingsUseLocalMovies", NULL, REG_DWORD, (BYTE*)&bSettingsUseLocalMovies, sizeof(BOOL));
-	RegSetValueEx(hkeySC2KFix, "bSettingsAlwaysSkipIntro", NULL, REG_DWORD, (BYTE*)&bSettingsAlwaysSkipIntro, sizeof(BOOL));
+	// Interface settings
+	WritePrivateProfileIntA(section, "bSettingsUseStatusDialog", bSettingsUseStatusDialog, ini_file);
+	WritePrivateProfileIntA(section, "bSettingsTitleCalendar", bSettingsTitleCalendar, ini_file);
+	WritePrivateProfileIntA(section, "bSettingsUseNewStrings", bSettingsUseNewStrings, ini_file);
+	WritePrivateProfileIntA(section, "bSettingsAlwaysSkipIntro", bSettingsAlwaysSkipIntro, ini_file);
 
-	RegSetValueEx(hkeySC2KFix, "bSettingsMilitaryBaseRevenue", NULL, REG_DWORD, (BYTE*)&bSettingsMilitaryBaseRevenue, sizeof(BOOL));
-	RegSetValueEx(hkeySC2KFix, "bSettingsFixOrdinances", NULL, REG_DWORD, (BYTE*)&bSettingsFixOrdinances, sizeof(BOOL));
 	ConsoleLog(LOG_INFO, "CORE: Saved sc2kfix settings.\n");
 
-	// Update any hooks we need to.
-	UpdateMiscHooks();
+	if (!onload) {
+		// Update any hooks we need to.
+		UpdateMiscHooks();
+	}
 }
 
 static void SetSettingsTabOrdering(HWND hwndDlg) {
@@ -277,22 +153,16 @@ static void SetSettingsTabOrdering(HWND hwndDlg) {
 	SetWindowPos(GetDlgItem(hwndDlg, ID_SETTINGS_CANCEL), NULL, 0, 0, 0, 0, uFlags);
 	SetWindowPos(GetDlgItem(hwndDlg, ID_SETTINGS_OK), NULL, 0, 0, 0, 0, uFlags);
 
-	// Gameplay Mod Settings
-	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_RADIOACTIVE_DECAY), NULL, 0, 0, 0, 0, uFlags);
-	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_FIX_ORDINANCES), NULL, 0, 0, 0, 0, uFlags);
-	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_MILITARY_BUILDINGS), NULL, 0, 0, 0, 0, uFlags);
-	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_MILITARY_REVENUE), NULL, 0, 0, 0, 0, uFlags);
+	// sc2kfix Core Settings
+	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_DONT_LOAD_MODS), NULL, 0, 0, 0, 0, uFlags);
+	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_CHECK_FOR_UPDATES), NULL, 0, 0, 0, 0, uFlags);
+	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_CONSOLE), NULL, 0, 0, 0, 0, uFlags);
 
 	// Interface Settings
 	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_SKIP_INTRO), NULL, 0, 0, 0, 0, uFlags);
-	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_LOCAL_MOVIES), NULL, 0, 0, 0, 0, uFlags);
 	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_NEW_STRINGS), NULL, 0, 0, 0, 0, uFlags);
 	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_TITLE_DATE), NULL, 0, 0, 0, 0, uFlags);
 	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_STATUS_DIALOG), NULL, 0, 0, 0, 0, uFlags);
-
-	// sc2kfix Core Settings
-	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_CHECK_FOR_UPDATES), NULL, 0, 0, 0, 0, uFlags);
-	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_CONSOLE), NULL, 0, 0, 0, 0, uFlags);
 
 	// Quality of Life / Performance Settings
 	SetWindowPos(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_MP3_MUSIC), NULL, 0, 0, 0, 0, uFlags);
@@ -355,6 +225,10 @@ BOOL CALLBACK SettingsDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 			"Enabling or disabling this setting takes effect after restarting the game.");
 		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_CHECK_FOR_UPDATES),
 			"This setting checks to see if there's a newer release of sc2kfix available when the game starts.\n\n");
+		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_DONT_LOAD_MODS),
+			"Enabling this setting forces sc2kfix to skip loading any installed mods on startup.\n\n"
+
+			"Enabling or disabling this setting takes effect after restarting the game.");
 
 		// Interface settings
 		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_STATUS_DIALOG),
@@ -366,42 +240,8 @@ BOOL CALLBACK SettingsDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 			"By default the title bar only displays the month and year. Enabling this setting will display the full in-game date instead.");
 		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_NEW_STRINGS),
 			"Certain strings in the game have typos, grammatical issues, and/or ambiguous wording. This setting loads corrected strings in memory in place of the affected originals.");
-		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_LOCAL_MOVIES),
-			"Enabling this setting will play the introduction \"in-flight movie\" and the WillTV interview videos from the MOVIES directory, if the video files have been copied there from the install CD.");
 		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_SKIP_INTRO),
 			"Once enabled the introduction videos will be skipped on startup (This will only apply if the videos have been detected, otherwise the standard warning will be displayed).");
-
-		// Gameplay mod settings
-		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_MILITARY_REVENUE),
-			"Military bases were originally intended to increase commercial demand and generate city revenue. "
-			"This was never implemented, though the negative aspects of military base ownership were. "
-			"This makes military bases in vanilla SimCity 2000 a rather poor mayoral decision.\n\n"
-
-			"Enabling this mod will allow military bases to generate a population based annual income in the form of a stipend from the federal government, "
-			"as well as increased commercial demand, both of which scale with the size and type of the base, and may fluctuate depending on military needs and "
-			"base redevelopment efforts.\n\n"
-
-			"Enabling or disabling this setting takes effect after restarting the game.");
-		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_MILITARY_BUILDINGS),
-			"Army bases in vanilla SimCity 2000 only grow military parking lots and 1x1 military warehouses. This mod allows Army bases to grow Top Secret, "
-			"nondescript military buildings and rotated 1x1 military warehouses.\n\n"
-
-			"Enabling or disabling this setting takes effect after restarting the game.");
-		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_FIX_ORDINANCES),
-			"Certain ordinances were not fully implemented in SimCity 2000. This setting re-implements certain aspects of them based on information from design "
-			"documents, interviews, and implementations in later games in the series.\n\n"
-
-			"When this mod is enabled, the following ordinances gain the following effects:\n"
-			" - Parking Fines: Increases mass transit usage and residential demand slightly.\n"
-			" - Free Clinics: Increases life expectancy and reduces hospital demand slightly.\n"
-			" - Junior Sports: Increases life expectancy and commercial demand slightly.\n"
-
-			"Enabling or disabling this setting takes effect after restarting the game.");
-		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_RADIOACTIVE_DECAY),
-			"The vanilla SimCity 2000 algorithm for radioactive decay an apparent oversight that results in any given month having a 1/21845 chance of a single radioactive "
-			"tile decaying into a clear tile. This mod reworks radioactive decay by ensuring that at least one radioactivity tile will be given a fair chance to decay per month.\n\n"
-
-			"Enabling or disabling this setting takes effect after restarting the game.");
 
 		// Set the version string.
 		strVersionInfo = "sc2kfix ";
@@ -424,15 +264,12 @@ BOOL CALLBACK SettingsDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 
 		Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_CONSOLE), bSettingsAlwaysConsole ? BST_CHECKED : BST_UNCHECKED);
 		Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_CHECK_FOR_UPDATES), bSettingsCheckForUpdates ? BST_CHECKED : BST_UNCHECKED);
+		Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_DONT_LOAD_MODS), bSettingsDontLoadMods ? BST_CHECKED : BST_UNCHECKED);
 
 		Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_STATUS_DIALOG), bSettingsUseStatusDialog ? BST_CHECKED : BST_UNCHECKED);
 		Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_TITLE_DATE), bSettingsTitleCalendar ? BST_CHECKED : BST_UNCHECKED);
 		Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_NEW_STRINGS), bSettingsUseNewStrings ? BST_CHECKED : BST_UNCHECKED);
-		Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_LOCAL_MOVIES), bSettingsUseLocalMovies ? BST_CHECKED : BST_UNCHECKED);
 		Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_SKIP_INTRO), bSettingsAlwaysSkipIntro ? BST_CHECKED : BST_UNCHECKED);
-
-		Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_MILITARY_REVENUE), bSettingsMilitaryBaseRevenue ? BST_CHECKED : BST_UNCHECKED);
-		Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_FIX_ORDINANCES), bSettingsFixOrdinances ? BST_CHECKED : BST_UNCHECKED);
 
 		// Center the dialog box
 		CenterDialogBox(hwndDlg);
@@ -456,18 +293,15 @@ BOOL CALLBACK SettingsDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 
 			bSettingsAlwaysConsole = Button_GetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_CONSOLE));
 			bSettingsCheckForUpdates = Button_GetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_CHECK_FOR_UPDATES));
+			bSettingsDontLoadMods = Button_GetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_DONT_LOAD_MODS));
 
 			bSettingsUseStatusDialog = Button_GetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_STATUS_DIALOG));
 			bSettingsTitleCalendar = Button_GetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_TITLE_DATE));
 			bSettingsUseNewStrings = Button_GetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_NEW_STRINGS));
-			bSettingsUseLocalMovies = Button_GetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_LOCAL_MOVIES));
 			bSettingsAlwaysSkipIntro = Button_GetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_SKIP_INTRO));
 
-			bSettingsMilitaryBaseRevenue = Button_GetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_MILITARY_REVENUE));
-			bSettingsFixOrdinances = Button_GetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_FIX_ORDINANCES));
-
 			// Save the settings
-			SaveSettings();
+			SaveSettings(FALSE);
 			EndDialog(hwndDlg, wParam);
 			break;
 		case ID_SETTINGS_CANCEL:
@@ -484,15 +318,12 @@ BOOL CALLBACK SettingsDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 
 			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_CONSOLE), BST_UNCHECKED);
 			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_CHECK_FOR_UPDATES), BST_CHECKED);
+			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_DONT_LOAD_MODS), BST_UNCHECKED);
 
 			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_STATUS_DIALOG), BST_UNCHECKED);
 			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_TITLE_DATE), BST_CHECKED);
 			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_NEW_STRINGS), BST_CHECKED);
-			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_LOCAL_MOVIES), BST_CHECKED);
 			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_SKIP_INTRO), BST_UNCHECKED);
-
-			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_MILITARY_REVENUE), BST_UNCHECKED);
-			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_FIX_ORDINANCES), BST_UNCHECKED);
 			break;
 		case ID_SETTINGS_VANILLA:
 			// Clear all checkboxes except for the update checker.
@@ -505,15 +336,12 @@ BOOL CALLBACK SettingsDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPAR
 
 			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_CONSOLE), BST_UNCHECKED);
 			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_CHECK_FOR_UPDATES), BST_CHECKED);
+			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_DONT_LOAD_MODS), BST_CHECKED);
 
 			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_STATUS_DIALOG), BST_UNCHECKED);
 			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_TITLE_DATE), BST_UNCHECKED);
 			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_NEW_STRINGS), BST_UNCHECKED);
-			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_LOCAL_MOVIES), BST_UNCHECKED);
 			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_SKIP_INTRO), BST_UNCHECKED);
-
-			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_MILITARY_REVENUE), BST_UNCHECKED);
-			Button_SetCheck(GetDlgItem(hwndDlg, IDC_SETTINGS_CHECK_FIX_ORDINANCES), BST_UNCHECKED);
 			break;
 		}
 		return TRUE;

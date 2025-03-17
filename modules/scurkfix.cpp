@@ -1,5 +1,5 @@
-// sc2kfix scurkfix.cpp: fixes for SCURK
-// (c) 2025 github.com/araxestroy - released under the MIT license
+// sc2kfix modules/scurkfix.cpp: fixes for SCURK
+// (c) 2025 sc2kfix project (https://sc2kfix.net) - released under the MIT license
 
 #undef UNICODE
 #include <windows.h>
@@ -44,6 +44,9 @@ BOOL InjectSCURKFix(void) {
 		ConsoleLog(LOG_ERROR, "CORE: Could not detect SCURK version. Not injecting animation fix.\n");
 		return TRUE;
 	}
+
+	if (dwSCURKAppVersion == SC2KVERSION_1996)
+		InstallRegistryPathingHooks_SCURK1996();
 
 	// Tell the rest of the plugin we're in SCURK
 	bInSCURK = TRUE;
