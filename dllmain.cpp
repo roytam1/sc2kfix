@@ -47,8 +47,8 @@ HFONT hFontArialRegular10;
 HFONT hFontArialBold10;
 HFONT hSystemRegular12;
 
-std::random_device rdRandomDevice;
-std::mt19937 mtMersenneTwister(rdRandomDevice());
+//std::random_device rdRandomDevice;
+//std::mt19937 mtMersenneTwister(rdRandomDevice());
 
 // Statics
 static DWORD dwDummy;
@@ -108,6 +108,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 			MessageBox(GetActiveWindow(), "Could not load winmm.dll (???)", "sc2kfix error", MB_OK | MB_ICONERROR);
 			return FALSE;
 		}
+
+		std::srand(time(NULL));
 
 		// Retrieve the list of functions we need to hook or pass through to WinMM
 		ALLEXPORTS_HOOKED(GETPROC);
@@ -197,7 +199,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		}
 
 		// Install our top-level exception handler
-		SetUnhandledExceptionFilter(CrashHandler);
+		//SetUnhandledExceptionFilter(CrashHandler);
 
 		// If we're attached to SCURK, switch over to the SCURK fix code
 		GetModuleBaseName(GetCurrentProcess(), NULL, szModuleBaseName, 200);
@@ -367,7 +369,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 }
 
 // Called on any top-level unhandled exception
-LONG WINAPI CrashHandler(LPEXCEPTION_POINTERS lpExceptions) {
+/*LONG WINAPI CrashHandler(LPEXCEPTION_POINTERS lpExceptions) {
 	HANDLE hFaultingProcess, hFaultingThread;
 	char szProcessName[64];
 	char szModuleName[64];
@@ -424,7 +426,7 @@ LONG WINAPI CrashHandler(LPEXCEPTION_POINTERS lpExceptions) {
 	
 	MessageBox(GameGetRootWindowHandle(), "sc2kfix has detected an unhandled top-level exception in SimCity 2000. If you have the console open, check the console for details. Fault information has been logged to the console and to sc2kfix.log.\n\nClicking the OK button will immediately terminate SimCity 2000. Any unsaved process will be lost.", "She's dead, Jim.", MB_OK | MB_ICONSTOP);
 	return EXCEPTION_EXECUTE_HANDLER;
-}
+}*/
 
 // Exports for WinMM hook
 ALLEXPORTS_PASSTHROUGH(DEFPROC)

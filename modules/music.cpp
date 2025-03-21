@@ -35,7 +35,7 @@ MCIDEVICEID mciDevice = NULL;
 void MusicShufflePlaylist(int iLastSongPlayed) {
 	if (bSettingsShuffleMusic) {
 		do {
-			std::shuffle(vectorRandomSongIDs.begin(), vectorRandomSongIDs.end(), mtMersenneTwister);
+			std::random_shuffle(vectorRandomSongIDs.begin(), vectorRandomSongIDs.end()/*, mtMersenneTwister*/);
 		} while (vectorRandomSongIDs[0] == iLastSongPlayed);
 
 		if (mus_debug & MUS_DEBUG_SONGS)

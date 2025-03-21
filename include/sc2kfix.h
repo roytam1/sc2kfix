@@ -8,7 +8,7 @@
 #include <map>
 #include <vector>
 #include <algorithm>
-#include <random>
+//#include <random>
 
 #include <smk.h>
 #include <sc2k_1996.h>
@@ -208,8 +208,8 @@ extern HFONT hSystemRegular12;
 
 extern std::map<DWORD, soundbufferinfo_t> mapSoundBuffers;
 extern std::vector<int> vectorRandomSongIDs;
-extern std::random_device rdRandomDevice;
-extern std::mt19937 mtMersenneTwister;
+/*extern std::random_device rdRandomDevice;
+extern std::mt19937 mtMersenneTwister;*/
 
 extern HWND hStatusDialog;
 extern HANDLE hWeatherBitmaps[13];
