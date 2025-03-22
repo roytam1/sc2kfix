@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @brief Line editor
  *
  * Interactive line input editor with syntax highlighting for
