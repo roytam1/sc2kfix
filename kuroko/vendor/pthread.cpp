@@ -4,34 +4,78 @@
 #include <pthread.h>
 
 extern "C" int pthread_rwlock_init(pthread_rwlock_t* rwlock, const void* attr) {
-	if (!rwlock)
-		return 1;
-	InitializeSRWLock(&rwlock->lock);
-	rwlock->exclusive = false;
+	if(!rwlock)
+		return EINVAL;
+
+	rwlock->readers = 0;
+	rwlock->read_event = CreateEvent(NULL, TRUE, FALSE, NULL);
+	if(!rwlock->read_event)
+		return ENOMEM;
+
+	rwlock->write_mutex = CreateMutex(NULL, FALSE, NULL);
+	if(!rwlock->write_mutex) {
+		CloseHandle(rwlock->read_event);
+		return ENOMEM;
+	}
 	return 0;
 }
 extern "C" int pthread_rwlock_rdlock(pthread_rwlock_t* rwlock) {
-	if (!rwlock)
-		return 1;
-	AcquireSRWLockShared(&rwlock->lock);
+	DWORD res;
+
+	/* for a trylock, change the wait time to 0 */
+	res = WaitForSingleObject(rwlock->write_mutex, INFINITE);
+
+	if(res == WAIT_FAILED || res == WAIT_TIMEOUT)
+		return EAGAIN;
+
+	InterlockedIncrement(&rwlock->readers);
+	if(!ResetEvent(rwlock->read_event)) {
+		ReleaseMutex(rwlock->write_mutex);
+		return EAGAIN;
+	}
+
+	if(!ReleaseMutex(rwlock->write_mutex))
+		return EACCES;
+
 	return 0;
 }
 extern "C" int pthread_rwlock_wrlock(pthread_rwlock_t* rwlock) {
-	if (!rwlock)
-		return 1;
-	AcquireSRWLockExclusive(&rwlock->lock);
-	rwlock->exclusive = true;
+	DWORD res;
+
+	/* for a trylock, change the wait time  to 0 */
+	res = WaitForSingleObject(rwlock->write_mutex, INFINITE);
+
+	if(res == WAIT_FAILED || res == WAIT_TIMEOUT)
+		return EAGAIN;
+
+	/* wait for the readers to leave the section */
+	if(*(volatile LONG *)&rwlock->readers)
+	{
+		res = WaitForSingleObject(rwlock->read_event, INFINITE);
+
+		if(res == WAIT_FAILED || res == WAIT_TIMEOUT) {
+			ReleaseMutex(rwlock->write_mutex);
+			return EAGAIN;
+		}
+	}
+
 	return 0;
 }
 extern "C" int pthread_rwlock_unlock(pthread_rwlock_t* rwlock) {
-	if (!rwlock)
-		return 1;
+	DWORD res = 0;
 
-	if (rwlock->exclusive) {
-		rwlock->exclusive = false;
-		ReleaseSRWLockExclusive(&rwlock->lock);
-	} else
-		ReleaseSRWLockShared(&rwlock->lock);
+	/* do we own the write lock? */
+	if(!ReleaseMutex(rwlock->write_mutex))
+		res = GetLastError();
+
+	if(res == ERROR_NOT_OWNER)
+	{
+		/* Nope, we must have a read lock */
+		if(*(volatile LONG *)&rwlock->readers &&
+		   !InterlockedDecrement(&rwlock->readers) &&
+		   !SetEvent(rwlock->read_event))
+			return EAGAIN;
+	}
 	return 0;
 }
 

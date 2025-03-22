@@ -6,8 +6,9 @@
 #include <process.h>
 
 typedef struct {
-	SRWLOCK lock;
-	BOOL exclusive;
+	HANDLE	write_mutex;
+	HANDLE	read_event;
+	LONG	readers;
 } pthread_rwlock_t;
 
 typedef struct {
