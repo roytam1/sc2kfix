@@ -18,6 +18,9 @@
 #include <winmm_exports.h>
 #include "resource.h"
 
+#include <kuroko/kuroko.h>
+#include <kuroko/util.h>
+
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(linker,"\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
@@ -37,6 +40,7 @@ const char* szSC2KFixReleaseTag = SC2KFIX_RELEASE_TAG;
 const char* szSC2KFixBuildInfo = __DATE__ " " __TIME__;
 FILE* fdLog = NULL;
 BOOL bInSCURK = FALSE;
+BOOL bKurokoVMInitialized = FALSE;
 
 HDC hDC;
 HFONT hFontMSSansSerifRegular8;
@@ -49,6 +53,10 @@ HFONT hSystemRegular12;
 
 //std::random_device rdRandomDevice;
 //std::mt19937 mtMersenneTwister(rdRandomDevice());
+
+#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#endif
 
 // Statics
 static DWORD dwDummy;
@@ -171,11 +179,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		// Allocate ourselves a console and redirect libc stdio to it
 		if (bConsoleEnabled) {
 			AllocConsole();
+			SetConsoleOutputCP(65001);
+			SetConsoleCP(65001);
 			SetConsoleTitle("sc2kfix console");
 			FILE* fdDummy = NULL;
 			freopen_s(&fdDummy, "CONIN$", "r", stdin);
 			freopen_s(&fdDummy, "CONOUT$", "w", stdout);
 			freopen_s(&fdDummy, "CONOUT$", "w", stderr);
+
+			// Enable VT100 codes
+			DWORD dwConsoleOutMode;
+			GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &dwConsoleOutMode);
+			dwConsoleOutMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+			SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), dwConsoleOutMode);
 
 			// Set the console window icon
 			HWND hConsoleWindow = GetConsoleWindow();
@@ -237,6 +253,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 			ConsoleLog(LOG_WARNING, "CORE: SC2K version could not be detected (got timestamp 0x%08X). Game will probably crash.\n", dwSC2KAppTimestamp);
 		}
 
+
 		// Registry check
 		int iInstallCheck;
 
@@ -257,6 +274,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 			CreateThread(NULL, 0, MusicThread, 0, 0, &dwMusicThreadID);
 			ConsoleLog(LOG_INFO, "MUS:  Music thread started.\n");
 		}
+
+		// Initialize the Kuroko VM
+		CreateThread(NULL, 0, KurokoThread, 0, 0, &dwKurokoThreadID);
 
 		// Generate fonts
 		hDC = GetDC(0);
@@ -343,8 +363,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		// Start the console thread.
 		if (bConsoleEnabled) {
 			ConsoleLog(LOG_INFO, "CORE: Starting console thread.\n");
-			printf("\n");
-			hConsoleThread = CreateThread(NULL, 0, ConsoleThread, 0, 0, NULL);
+			hConsoleThread = CreateThread(NULL, 0, ConsoleThread, 0, 0, &dwConsoleThreadID);
 		}
 		break;
 
@@ -357,6 +376,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 	case DLL_PROCESS_DETACH:
 		// Shut down the music thread
 		PostThreadMessage(dwMusicThreadID, WM_QUIT, NULL, NULL);
+
+		// Shut down the Kuroko thread
+		if (bKurokoVMInitialized)
+			PostThreadMessage(dwKurokoThreadID, WM_QUIT, NULL, NULL);
 
 		// Send a closing message and close the log file
 		ReleaseSMKFuncs();

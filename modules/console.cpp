@@ -26,33 +26,29 @@
 #include <sc2kfix.h>
 #include "../resource.h"
 
+#include <kuroko/kuroko.h>
+#include <kuroko/util.h>
+
 #ifdef CONSOLE_ENABLED
 BOOL bConsoleEnabled = TRUE;
 #else 
 BOOL bConsoleEnabled = FALSE;
 #endif
 
-typedef struct {
-	int iType;
-	DWORD dwContents;
-} script_variable_t;
-
 HANDLE hConsoleThread;
+DWORD dwConsoleThreadID;
 char szCmdBuf[256] = { 0 };
 BOOL bConsoleUndocumentedMode = FALSE;
-int iConsoleScriptNest = 0;
-std::map<std::string, script_variable_t> mapVariables;
 
 static BOOL ConsoleCmdShowTest(const char* szCommand, const char* szArguments);
 
 console_command_t fpConsoleCommands[] = {
 	{ "?", ConsoleCmdHelp, CONSOLE_COMMAND_ALIAS, "" },
-	{ "clear", ConsoleCmdClear, CONSOLE_COMMAND_DOCUMENTED, "Clear all variables" },
+	{ "clear", ConsoleCmdClear, CONSOLE_COMMAND_DOCUMENTED, "Clear screen" },
 	{ "echo", ConsoleCmdEcho, CONSOLE_COMMAND_DOCUMENTED, "Print to console" },
 	{ "echo!", ConsoleCmdEcho, CONSOLE_COMMAND_UNDOCUMENTED, "Print to console without newline" },
 	{ "help", ConsoleCmdHelp, CONSOLE_COMMAND_DOCUMENTED, "Display this help" },
-	//{ "label", ConsoleCmdLabel, CONSOLE_COMMAND_SCRIPTONLY, "Script label" },
-	{ "run", ConsoleCmdRun, CONSOLE_COMMAND_DOCUMENTED, "Run console script" },
+	{ "run", ConsoleCmdRun, CONSOLE_COMMAND_DOCUMENTED, "Run Kuroko code" },
 	{ "set", ConsoleCmdSet, CONSOLE_COMMAND_DOCUMENTED, "Modify game and plugin behaviour" },
 	{ "show", ConsoleCmdShow, CONSOLE_COMMAND_DOCUMENTED, "Display various game and plugin information" },
 	{ "unset", ConsoleCmdSet, CONSOLE_COMMAND_DOCUMENTED, "Modify game and plugin behaviour" },
@@ -61,62 +57,60 @@ console_command_t fpConsoleCommands[] = {
 
 void ConsoleScriptSleep(DWORD dwMilliseconds) {
 	int i = dwMilliseconds / 100;
-	do {
-		if (!iConsoleScriptNest)
-			return;
+	do
 		Sleep(100);
-		i--;
-	} while (i);
-}
-
-BOOL ConsoleCmdLabel(const char* szCommand, const char* szArguments) {
-	if (!szArguments || !*szArguments)
-		return FALSE;
+	while (--i);
 }
 
 // COMMAND: run ...
 
 BOOL ConsoleCmdRun(const char* szCommand, const char* szArguments) {
+	MSG msg;
 	std::string strPossibleScriptName;
 	if (!szArguments || !*szArguments || !strcmp(szArguments, "?")) {
-		printf("  run <filename>   Executes a file as a series of console commands\n");
+		printf(
+			"  run kuroko       Enters the Kuroko REPL\n"
+			"  run <filename>   Executes a file as a Kuroko module\n");
+		return TRUE;
+	}
+
+	// Start the Kuroko REPL if requested
+	if (!strcmp(szArguments, "kuroko")) {
+		if (bKurokoVMInitialized) {
+			printf("\n");
+			PostThreadMessage(dwKurokoThreadID, WM_KUROKO_REPL, NULL, NULL);
+			GetMessage(&msg, NULL, 0, 0);
+			printf("\nKuroko REPL exited, returning control to console thread.\n");
+		}
 		return TRUE;
 	}
 
 	// Try to find the script we want
 	strPossibleScriptName = szArguments;
 	if (!FileExists(strPossibleScriptName.c_str())) {
-		strPossibleScriptName += ".sx2";
+		strPossibleScriptName += ".krk";
 		if (!FileExists(strPossibleScriptName.c_str())) {
 			ConsoleLog(LOG_ERROR, "CORE: Couldn't find script %s.\n", szArguments);
 			return TRUE;
 		}
 	}
 
-	// Iterate through the script and run lines until they fail
-	std::ifstream fsScriptFile(strPossibleScriptName);
-	std::string strScriptLine;
-	int i = 1;
-	iConsoleScriptNest++;
-	while (std::getline(fsScriptFile, strScriptLine)) {
-		if (!ConsoleEvaluateCommand(strScriptLine.c_str(), FALSE) || !iConsoleScriptNest) {
-			ConsoleLog(LOG_ERROR, "CORE: Script %s aborted on line %d.\n", strPossibleScriptName.c_str(), i);
+	// Execute through Kuroko
+	if (bKurokoVMInitialized) {
+		char* szFilename = (char*)malloc(strPossibleScriptName.length() + 1);
+		if (!szFilename)
 			return TRUE;
-		}
 
-		// We survived!
-		i++;
+		strcpy_s(szFilename, strPossibleScriptName.length() + 1, strPossibleScriptName.c_str());
+		PostThreadMessage(dwKurokoThreadID, WM_KUROKO_FILE, (WPARAM)szFilename, NULL);
+		GetMessage(&msg, NULL, 0, 0);
+		free(szFilename);
 	}
-
-	// Decrement the nesting count and break	
-	iConsoleScriptNest--;
 	return TRUE;
 }
 
 BOOL ConsoleCmdClear(const char* szCommand, const char* szArguments) {
-	mapVariables.clear();
-	if (!iConsoleScriptNest)
-		printf("Variable map cleared.\n");
+	WriteConsole(GetStdHandle(STD_OUTPUT_HANDLE), "\x1b[2J\x1b[0;0H", sizeof("\x1b[2J\x1b[0;0H"), NULL, NULL);
 	return TRUE;
 }
 
@@ -127,9 +121,6 @@ BOOL ConsoleCmdEcho(const char* szCommand, const char* szArguments) {
 
 BOOL ConsoleCmdWait(const char* szCommand, const char* szArguments) {
 	int iMilliseconds = 0;
-
-	// Function only valid in script mode
-	if (!iConsoleScriptNest)
 		return FALSE;
 
 	// Sleep for N milliseconds
@@ -487,13 +478,15 @@ BOOL ConsoleCmdShowVersion(const char* szCommand, const char* szArguments) {
 		szSC2KVersion = "1996 Special Edition";
 	}
 
+	KrkValue kuroko_version;
+	krk_tableGet_fast(&vm.system->fields, S("version"), &kuroko_version);
+
 	printf(
 		"sc2kfix version %s - https://sc2kfix.net\n"
 		"Plugin build info: %s\n"
 		"SimCity 2000 version: %s\n"
 		"Plugin loaded at 0x%08X\n"
-		"City days: %u\n", szSC2KFixVersion, szSC2KFixBuildInfo, szSC2KVersion, (DWORD)hSC2KFixModule, dwCityDays);
-	printf("\n");
+		"Kuroko version: Kuroko %s\n", szSC2KFixVersion, szSC2KFixBuildInfo, szSC2KVersion, (DWORD)hSC2KFixModule, AS_CSTRING(kuroko_version));
 
 	return TRUE;
 }
@@ -589,6 +582,7 @@ BOOL ConsoleCmdSetTile(const char* szCommand, const char* szArguments) {
 // CONSOLE THREAD
 
 DWORD WINAPI ConsoleThread(LPVOID lpParameter) {
+	Sleep(200);
 	SetConsoleCtrlHandler(ConsoleCtrlHandler, TRUE);
 	for (;;) {
 		if (bConsoleUndocumentedMode)
@@ -605,9 +599,6 @@ DWORD WINAPI ConsoleThread(LPVOID lpParameter) {
 BOOL WINAPI ConsoleCtrlHandler(DWORD fdwCtrlType) {
 	switch (fdwCtrlType) {
 	case CTRL_C_EVENT:
-		if (iConsoleScriptNest)
-			printf("\nScript halted due to Control-C interrupt.\n\n");
-		iConsoleScriptNest = 0;
 		return TRUE;
 	}
 	return FALSE;
