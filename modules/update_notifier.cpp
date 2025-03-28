@@ -20,6 +20,20 @@
 
 UINT updatenotifier_debug = UPDATENOTIFIER_DEBUG;
 
+typedef HINTERNET (WINAPI *PFN_INTERNETOPENA)(LPCSTR lpszAgent, DWORD dwAccessType, LPCSTR lpszProxy, LPCSTR lpszProxyBypass, DWORD dwFlags);
+typedef BOOL (WINAPI *PFN_INTERNETSETOPTIONA)(HINTERNET hInternet, DWORD dwOption, LPVOID lpBuffer, DWORD dwBufferLength);
+typedef HINTERNET (WINAPI *PFN_INTERNETOPENURLA)(HINTERNET hInternet, LPCSTR lpszUrl, LPCSTR lpszHeaders, DWORD dwHeadersLength, DWORD dwFlags, DWORD_PTR dwContext);
+typedef BOOL (WINAPI *PFN_INTERNETREADFILE)(HINTERNET hFile, LPVOID lpBuffer, DWORD dwNumberOfBytesToRead, LPDWORD lpdwNumberOfBytesRead);
+typedef BOOL (WINAPI *PFN_INTERNETCLOSEHANDLE)(HINTERNET hInternet);
+
+static PFN_INTERNETOPENA pfnInternetOpenA = nullptr;
+static PFN_INTERNETSETOPTIONA pfnInternetSetOptionA = nullptr;
+static PFN_INTERNETOPENURLA pfnInternetOpenUrlA = nullptr;
+static PFN_INTERNETREADFILE pfnInternetReadFile = nullptr;
+static PFN_INTERNETCLOSEHANDLE pfnInternetCloseHandle = nullptr;
+
+static HMODULE hWinInetInst = nullptr;
+
 const char* szGitHubRepoReleases = "https://api.github.com/repos/sc2kfix/sc2kfix/releases?per_page=1";
 const char* szGitHubAPIType[] = { "Accept: application/vnd.github+json", NULL };
 char szLatestRelease[24] = { 0 };
@@ -34,7 +48,24 @@ DWORD WINAPI UpdaterThread(LPVOID lpParameter) {
 
 BOOL UpdaterCheckForUpdates(void) {
 	DWORD dwContext;
-	HINTERNET hInet = InternetOpen("sc2kfix Update Notifier", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, NULL);
+
+	if(!hWinInetInst)
+		hWinInetInst = LoadLibrary("WININET.DLL");
+
+	if(!hWinInetInst) // can't load WININET.DLL, returning FALSE
+		return FALSE;
+
+	pfnInternetOpenA = reinterpret_cast<PFN_INTERNETOPENA>(GetProcAddress(hWinInetInst, "InternetOpenA"));
+	pfnInternetSetOptionA = reinterpret_cast<PFN_INTERNETSETOPTIONA>(GetProcAddress(hWinInetInst, "InternetSetOptionA"));
+	pfnInternetOpenUrlA = reinterpret_cast<PFN_INTERNETOPENURLA>(GetProcAddress(hWinInetInst, "InternetOpenUrlA"));
+	pfnInternetReadFile = reinterpret_cast<PFN_INTERNETREADFILE>(GetProcAddress(hWinInetInst, "InternetReadFile"));
+	pfnInternetCloseHandle = reinterpret_cast<PFN_INTERNETCLOSEHANDLE>(GetProcAddress(hWinInetInst, "InternetCloseHandle"));
+
+	if(!pfnInternetOpenA || !pfnInternetSetOptionA || !pfnInternetOpenUrlA || !pfnInternetReadFile || !pfnInternetCloseHandle) {// can't get required WININET API, returning FALSE
+		return FALSE;
+	}
+
+	HINTERNET hInet = pfnInternetOpenA("sc2kfix Update Notifier", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, NULL);
 	if (!hInet) {
 		if (updatenotifier_debug)
 			ConsoleLog(LOG_ERROR, "UPD:  Couldn't open hInet.\n");
@@ -45,14 +76,14 @@ BOOL UpdaterCheckForUpdates(void) {
 		ConsoleLog(LOG_DEBUG, "UPD:  InternetOpen()\n");
 
 	DWORD dwTimeoutMilliseconds = 3000;
-	InternetSetOption(hInet, INTERNET_OPTION_CONNECT_TIMEOUT, &dwTimeoutMilliseconds, sizeof(DWORD));
+	pfnInternetSetOptionA(hInet, INTERNET_OPTION_CONNECT_TIMEOUT, &dwTimeoutMilliseconds, sizeof(DWORD));
 
 	if (updatenotifier_debug)
 		ConsoleLog(LOG_DEBUG, "UPD:  InternetSetOption()\n");
 
 #pragma warning(push)
 #pragma warning(disable:6385)
-	HINTERNET hHttpRequest = InternetOpenUrl(hInet, szGitHubRepoReleases, "X-GitHub-Api-Version: 2022-11-28\r\n", -1L, INTERNET_FLAG_SECURE, (DWORD_PTR)&dwContext);
+	HINTERNET hHttpRequest = pfnInternetOpenUrlA(hInet, szGitHubRepoReleases, "X-GitHub-Api-Version: 2022-11-28\r\n", -1L, INTERNET_FLAG_SECURE, (DWORD_PTR)&dwContext);
 #pragma warning(pop)
 	if (!hHttpRequest) {
 		if (GetLastError() == 12002)
@@ -79,7 +110,7 @@ BOOL UpdaterCheckForUpdates(void) {
 	if (updatenotifier_debug)
 		ConsoleLog(LOG_DEBUG, "UPD:  Bytes to grab: %u\n", 16384);
 
-	if (!InternetReadFile(hHttpRequest, szBuffer, 16384, &dwBytesGrabbed)) {
+	if (!pfnInternetReadFile(hHttpRequest, szBuffer, 16384, &dwBytesGrabbed)) {
 		if (updatenotifier_debug)
 			ConsoleLog(LOG_ERROR, "UPD:  InternetReadFile failed, 0x%08X.\n", GetLastError());
 		return FALSE;
@@ -88,8 +119,8 @@ BOOL UpdaterCheckForUpdates(void) {
 	if (updatenotifier_debug)
 		ConsoleLog(LOG_DEBUG, "UPD:  InternetReadFile()\n");
 
-	InternetCloseHandle(hHttpRequest);
-	InternetCloseHandle(hInet);
+	pfnInternetCloseHandle(hHttpRequest);
+	pfnInternetCloseHandle(hInet);
 
 	if (updatenotifier_debug)
 		ConsoleLog(LOG_DEBUG, "UPD:  InternetCloseHandle()\n");
