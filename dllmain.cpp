@@ -202,7 +202,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		//SetUnhandledExceptionFilter(CrashHandler);
 
 		// If we're attached to SCURK, switch over to the SCURK fix code
-		GetModuleBaseName(GetCurrentProcess(), NULL, szModuleBaseName, 200);
 		if (!_stricmp(szModuleBaseName, "winscurk.exe")) {
 			InjectSCURKFix();
 			break;
