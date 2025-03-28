@@ -14,6 +14,10 @@
 #include <ostream>
 #include <iostream>
 
+#if defined(_MSC_VER) && _MSC_VER < 1900
+#define noexcept
+#endif
+
 namespace json {
 	using std::map;
 	using std::deque;

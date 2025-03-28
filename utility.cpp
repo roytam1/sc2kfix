@@ -13,6 +13,10 @@
 #include <sc2kfix.h>
 #include "resource.h"
 
+#if defined(_MSC_VER) && _MSC_VER < 1900
+#define thread_local
+#endif
+
 void CenterDialogBox(HWND hwndDlg) {
 	HWND hwndDesktop;
 	RECT rcTemp, rcDlg, rcDesktop;
