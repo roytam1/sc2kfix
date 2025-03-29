@@ -39,9 +39,8 @@ BOOL bSettingsAlwaysSkipIntro = FALSE;
 
 void SetGamePath(void) {
 	char szModulePathName[MAX_PATH];
-	GetModuleFileNameEx(GetCurrentProcess(), NULL, szModulePathName, MAX_PATH);
-
-	PathRemoveFileSpecA(szModulePathName);
+	GetModuleFileName(NULL, szModulePathName, MAX_PATH);
+	MyPathRemoveFileSpecA(szModulePathName);
 	strcpy_s(szGamePath, MAX_PATH, szModulePathName);
 }
 

@@ -131,9 +131,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 
 		// Check to see whether we're attaching against a valid binary
 		// (Based on the filename). Otherwise breakout.
-		GetModuleBaseName(GetCurrentProcess(), NULL, szModuleBaseName, 200);
-		if (!(_stricmp(szModuleBaseName, "winscurk.exe") == 0 ||
-			_stricmp(szModuleBaseName, "simcity.exe") == 0)) {
+		// just use argv[0] instead of getting from psapi
+		WideCharToMultiByte(CP_ACP, 0, argv[0], -1, szModuleBaseName, 200, NULL, NULL);
+		MyPathStripPathA(szModuleBaseName);
+		MyPathRemoveExtensionA(szModuleBaseName);
+		if (!(_stricmp(szModuleBaseName, "winscurk") == 0 ||
+			_stricmp(szModuleBaseName, "simcity") == 0)) {
 			break;
 		}
 
@@ -202,7 +205,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		//SetUnhandledExceptionFilter(CrashHandler);
 
 		// If we're attached to SCURK, switch over to the SCURK fix code
-		if (!_stricmp(szModuleBaseName, "winscurk.exe")) {
+		if (!_stricmp(szModuleBaseName, "winscurk")) {
 			InjectSCURKFix();
 			break;
 		}

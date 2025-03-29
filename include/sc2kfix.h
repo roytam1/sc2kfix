@@ -127,6 +127,13 @@ const char *AdjustSource(char *buf, const char *path);
 
 // Utility functions
 
+// minimal shlwapi replacements
+BOOL WINAPI MyPathRemoveFileSpecA(char* path);
+LPSTR WINAPI MyPathFindExtensionA(const char* path);
+char* WINAPI MyPathFindFileNameA(const char* path);
+void WINAPI MyPathRemoveExtensionA(char* path);
+void WINAPI MyPathStripPathA(char *path);
+
 void CenterDialogBox(HWND hwndDlg);
 HWND CreateTooltip(HWND hDlg, HWND hControl, const char* szText);
 const char* HexPls(UINT uNumber, int width);

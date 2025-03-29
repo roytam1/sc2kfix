@@ -24,8 +24,8 @@ static HMODULE hMod_SMK = 0;
 void GetSMKFuncs() {
 	char szSMKLibPath[MAX_PATH] = { 0 };
 
-	GetModuleFileNameEx(GetCurrentProcess(), NULL, szSMKLibPath, MAX_PATH);
-	PathRemoveFileSpecA(szSMKLibPath);
+	GetModuleFileName(NULL, szSMKLibPath, MAX_PATH);
+	MyPathRemoveFileSpecA(szSMKLibPath);
 	strcat_s(szSMKLibPath, MAX_PATH, "\\smackw32.dll");
 
 	hMod_SMK = LoadLibraryA(szSMKLibPath);

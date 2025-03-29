@@ -17,6 +17,100 @@
 #define thread_local
 #endif
 
+BOOL WINAPI MyPathRemoveFileSpecA(char* path)
+{
+	char* filespec = path;
+	BOOL modified = FALSE;
+	
+	if (!path || !*path) { return FALSE; }
+	if (*path == '\\') { filespec = ++path; }
+	if (*path == '\\') { filespec = ++path; }
+
+	while (*path)
+	{
+		if (*path == '\\')
+		{
+			filespec = path;
+		}
+		else if (*path == ':')
+		{
+			filespec = ++path;
+			if (*path == '\\') { filespec++; }
+		}
+		path = CharNextA(path);
+	}
+
+	if (*filespec)
+	{
+		*filespec = '\0';
+		modified = TRUE;
+	}
+
+	return modified;
+}
+
+LPSTR WINAPI MyPathFindExtensionA(const char* path)
+{
+	const char* p = path;
+	const char* ext = NULL;
+	while (*p)
+	{
+		if (*p == '.')
+		{
+			ext = p;
+		}
+		else if (*p == '\\' || *p == '/')
+		{
+			ext = NULL;
+		}
+		p = CharNextA(p);
+	}
+	if (ext)
+	{
+		return (LPSTR)ext;
+	}
+	return (LPSTR)p;
+}
+
+char* WINAPI MyPathFindFileNameA(const char* path)
+{
+	const char* p = path;
+	const char* name = NULL;
+	while (*p)
+	{
+		if (*p == '\\' || *p == '/')
+		{
+			name = p + 1;
+		}
+		p = CharNextA(p);
+	}
+	if (name)
+	{
+		return (char*)name;
+	}
+	return (char*)path;
+}
+
+void WINAPI MyPathRemoveExtensionA(char* path)
+{
+	char* ext = MyPathFindExtensionA(path);
+	if (ext)
+	{
+		*ext = '\0';
+	}
+}
+
+void WINAPI MyPathStripPathA(char *path)
+{
+	if (path)
+	{
+		char *filename = MyPathFindFileNameA(path);
+		if (filename != path) {
+			memcpy(path, filename, strlen(filename) + 1);
+		}
+    }
+}
+
 void CenterDialogBox(HWND hwndDlg) {
 	HWND hwndDesktop;
 	RECT rcTemp, rcDlg, rcDesktop;
