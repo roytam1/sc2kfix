@@ -115,7 +115,21 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		ALLEXPORTS_HOOKED(GETPROC);
 		ALLEXPORTS_PASSTHROUGH(GETPROC);
 
-		// Before we do anything, check to see whether we're attaching against a valid binary
+		// Get our command line. WARNING: This uses WIDE STRINGS.
+		argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+		if (argv) {
+			for (int i = 0; i < argc; i++) {
+				if (!lstrcmpiW(argv[i], L"-console"))
+					bConsoleEnabled = TRUE;
+				if (!lstrcmpiW(argv[i], L"-defaults"))
+					bSkipLoadSettings = TRUE;
+				if (!lstrcmpiW(argv[i], L"-skipintro"))
+					bSkipIntro = TRUE;
+				// TODO - put some debug options here
+			}
+		}
+
+		// Check to see whether we're attaching against a valid binary
 		// (Based on the filename). Otherwise breakout.
 		GetModuleBaseName(GetCurrentProcess(), NULL, szModuleBaseName, 200);
 		if (!(_stricmp(szModuleBaseName, "winscurk.exe") == 0 ||
@@ -131,20 +145,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 
 		// Ensure that the common controls library is loaded
 		InitCommonControlsEx(&icc);
-
-		// Get our command line. WARNING: This uses WIDE STRINGS.
-		argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-		if (argv) {
-			for (int i = 0; i < argc; i++) {
-				if (!lstrcmpiW(argv[i], L"-console"))
-					bConsoleEnabled = TRUE;
-				if (!lstrcmpiW(argv[i], L"-defaults"))
-					bSkipLoadSettings = TRUE;
-				if (!lstrcmpiW(argv[i], L"-skipintro"))
-					bSkipIntro = TRUE;
-				// TODO - put some debug options here
-			}
-		}
 
 		// Open a log file. If it fails, we handle that safely elsewhere
 		// AF - Relocated so it will record any messages that occur
