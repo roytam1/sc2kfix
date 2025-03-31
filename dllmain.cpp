@@ -37,6 +37,8 @@ const char* szSC2KFixReleaseTag = SC2KFIX_RELEASE_TAG;
 const char* szSC2KFixBuildInfo = __DATE__ " " __TIME__;
 FILE* fdLog = NULL;
 BOOL bInSCURK = FALSE;
+BOOL bUseAdvancedQuery = FALSE;
+
 
 //std::random_device rdRandomDevice;
 //std::mt19937 mtMersenneTwister(rdRandomDevice());
@@ -116,6 +118,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 					bSkipLoadSettings = TRUE;
 				if (!lstrcmpiW(argv[i], L"-skipintro"))
 					bSkipIntro = TRUE;
+				if (!lstrcmpiW(argv[i], L"-advquery"))
+					bUseAdvancedQuery = TRUE;
 				// TODO - put some debug options here
 			}
 		}
