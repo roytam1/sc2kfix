@@ -131,6 +131,7 @@ const char *AdjustSource(char *buf, const char *path);
 
 // Utility functions
 
+void InitializeFonts(void);
 void CenterDialogBox(HWND hwndDlg);
 HWND CreateTooltip(HWND hDlg, HWND hControl, const char* szText);
 const char* HexPls(UINT uNumber, int width);
@@ -203,10 +204,12 @@ extern const char* szSC2KFixBuildInfo;
 extern BOOL bInSCURK;
 extern BOOL bConsoleEnabled;
 extern BOOL bSkipIntro;
+extern BOOL bUseAdvancedQuery;
 extern BOOL bKurokoVMInitialized;
 extern DWORD dwConsoleThreadID;
 extern DWORD dwKurokoThreadID;
 
+extern BOOL bFontsInitialized;
 extern HFONT hFontMSSansSerifRegular8;
 extern HFONT hFontMSSansSerifBold8;
 extern HFONT hFontMSSansSerifRegular10;
@@ -249,9 +252,12 @@ void InstallRegistryPathingHooks_SCURK1996(void);
 // Debugging settings
 
 extern UINT mci_debug;
+extern UINT military_debug;
+extern UINT mischook_debug;
+extern UINT mus_debug;
 extern UINT snd_debug;
 extern UINT timer_debug;
-extern UINT mischook_debug;
+extern UINT updatenotifier_debug;
 
 // SCURK specific stuff
 

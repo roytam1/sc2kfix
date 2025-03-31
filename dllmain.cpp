@@ -41,15 +41,7 @@ const char* szSC2KFixBuildInfo = __DATE__ " " __TIME__;
 FILE* fdLog = NULL;
 BOOL bInSCURK = FALSE;
 BOOL bKurokoVMInitialized = FALSE;
-
-HDC hDC;
-HFONT hFontMSSansSerifRegular8;
-HFONT hFontMSSansSerifBold8;
-HFONT hFontMSSansSerifRegular10;
-HFONT hFontMSSansSerifBold10;
-HFONT hFontArialRegular10;
-HFONT hFontArialBold10;
-HFONT hSystemRegular12;
+BOOL bUseAdvancedQuery = FALSE;
 
 //std::random_device rdRandomDevice;
 //std::mt19937 mtMersenneTwister(rdRandomDevice());
@@ -150,7 +142,17 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 					bSkipLoadSettings = TRUE;
 				if (!lstrcmpiW(argv[i], L"-skipintro"))
 					bSkipIntro = TRUE;
-				// TODO - put some debug options here
+				if (!lstrcmpiW(argv[i], L"-advquery"))
+					bUseAdvancedQuery = TRUE;
+				if (!lstrcmpiW(argv[i], L"-debugall")) {
+					mci_debug = DEBUG_FLAGS_EVERYTHING;
+					military_debug = DEBUG_FLAGS_EVERYTHING;
+					mischook_debug = DEBUG_FLAGS_EVERYTHING;
+					mus_debug = DEBUG_FLAGS_EVERYTHING;
+					snd_debug = DEBUG_FLAGS_EVERYTHING;
+					timer_debug = DEBUG_FLAGS_EVERYTHING;
+					updatenotifier_debug = DEBUG_FLAGS_EVERYTHING;
+				}
 			}
 		}
 
@@ -207,6 +209,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 #endif
 
 		ConsoleLog(LOG_INFO, "CORE: SC2K session started at %lld.\n", time(NULL));
+		ConsoleLog(LOG_INFO, "CORE: Command line: %s\n", GetCommandLine());
 
 		if (bConsoleEnabled) {
 			ConsoleLog(LOG_INFO, "CORE: Spawned console session.\n");
@@ -274,19 +277,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 			CreateThread(NULL, 0, MusicThread, 0, 0, &dwMusicThreadID);
 			ConsoleLog(LOG_INFO, "MUS:  Music thread started.\n");
 		}
-
-		// Initialize the Kuroko VM
-		CreateThread(NULL, 0, KurokoThread, 0, 0, &dwKurokoThreadID);
-
-		// Generate fonts
-		hDC = GetDC(0);
-		hFontMSSansSerifRegular8 = CreateFont(-MulDiv(8, GetDeviceCaps(hDC, LOGPIXELSY), 72), 0, 0, 0, FW_REGULAR, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, "MS Sans Serif");
-		hFontMSSansSerifBold8 = CreateFont(-MulDiv(8, GetDeviceCaps(hDC, LOGPIXELSY), 72), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, "MS Sans Serif");
-		hFontMSSansSerifRegular10 = CreateFont(-MulDiv(10, GetDeviceCaps(hDC, LOGPIXELSY), 72), 0, 0, 0, FW_REGULAR, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, "MS Sans Serif");
-		hFontMSSansSerifBold10 = CreateFont(-MulDiv(10, GetDeviceCaps(hDC, LOGPIXELSY), 72), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, "MS Sans Serif");
-		hFontArialRegular10 = CreateFont(-MulDiv(10, GetDeviceCaps(hDC, LOGPIXELSY), 72), 0, 0, 0, FW_REGULAR, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, "Arial");
-		hFontArialBold10 = CreateFont(-MulDiv(10, GetDeviceCaps(hDC, LOGPIXELSY), 72), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, "Arial");
-		hSystemRegular12 = CreateFont(-MulDiv(12, GetDeviceCaps(hDC, LOGPIXELSY), 72), 0, 0, 0, FW_REGULAR, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, "System");
 
 		// Palette animation fix
 		LPVOID lpAnimationFix;
@@ -398,6 +388,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 	char szModuleName[64];
 	STACKFRAME stStackFrame = { 0 };
 	CONTEXT stContext = { 0 };
+	BOOL bHaveDebugSyms = FALSE;
 
 	// She's dead, Jim.
 	bGameDead = TRUE;
@@ -407,6 +398,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 	GetModuleFileName(NULL, szProcessName, sizeof(szProcessName));
 	GetModuleBaseName(GetCurrentProcess(), (HMODULE)SymGetModuleBase(hFaultingProcess, (DWORD)lpExceptions->ContextRecord->Eip), szModuleName, sizeof(szModuleName));
 
+	// Attempt to load symbols if we can
+	if (SymInitialize(hFaultingProcess, NULL, TRUE))
+		bHaveDebugSyms = TRUE;
+
+	// Dump the header
 	ConsoleLog(LOG_EMERGENCY, "CORE:\n");
 	ConsoleLog(LOG_EMERGENCY, "CORE: !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
 	ConsoleLog(LOG_EMERGENCY, "CORE: !!! TOP-LEVEL EXCEPTION HANDLER CALLED !!!\n");
@@ -427,7 +423,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 
 	ConsoleLog(LOG_EMERGENCY, "CORE: \n");
 	ConsoleLog(LOG_EMERGENCY, "CORE: Stack Trace:\n");
-	ConsoleLog(LOG_EMERGENCY, "CORE:  - EIP        ESP        EBP        \n");
+	ConsoleLog(LOG_EMERGENCY, "CORE:  - EIP         ESP         EBP         SYM\n");
 
 	// Set up the stack frame and contexts
 	stStackFrame.AddrPC.Offset = lpExceptions->ContextRecord->Eip;
@@ -440,9 +436,28 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 	RtlCaptureContext(&stContext);
 
 	// Unwind and dump the stack
-	do {
-		ConsoleLog(LOG_EMERGENCY, "CORE:  - 0x%08X  0x%08X  0x%08X  \n", stStackFrame.AddrPC.Offset, stStackFrame.AddrStack.Offset, stStackFrame.AddrFrame.Offset);
-	} while (StackWalk(IMAGE_FILE_MACHINE_I386, hFaultingProcess, hFaultingThread, &stStackFrame, &stContext, NULL, SymFunctionTableAccess, SymGetModuleBase, NULL));
+	while (StackWalk(IMAGE_FILE_MACHINE_I386, hFaultingProcess, hFaultingThread, &stStackFrame, &stContext, NULL, SymFunctionTableAccess, SymGetModuleBase, NULL)) {
+		std::string strSymbolInfo;
+		DWORD dwDisplacement = 0;
+		char szCurrentModuleName[64];
+
+		GetModuleBaseName(GetCurrentProcess(), (HMODULE)SymGetModuleBase(hFaultingProcess, stStackFrame.AddrPC.Offset), szCurrentModuleName, sizeof(szCurrentModuleName));
+		strSymbolInfo = "<";
+		strSymbolInfo += szCurrentModuleName;
+		strSymbolInfo += ">:";
+
+		char szBuf[sizeof(IMAGEHLP_SYMBOL) + 255];
+		PIMAGEHLP_SYMBOL stSymbol = (PIMAGEHLP_SYMBOL)szBuf;
+		stSymbol->SizeOfStruct = sizeof(IMAGEHLP_SYMBOL) + 255;
+		stSymbol->MaxNameLength = 254;
+		if (SymGetSymFromAddr(hFaultingProcess, stStackFrame.AddrPC.Offset, &dwDisplacement, stSymbol))
+			strSymbolInfo += stSymbol->Name;
+		else
+			strSymbolInfo += "unknown";
+		strSymbolInfo += "()";
+
+		ConsoleLog(LOG_EMERGENCY, "CORE:  - 0x%08X  0x%08X  0x%08X  %s\n", stStackFrame.AddrPC.Offset, stStackFrame.AddrStack.Offset, stStackFrame.AddrFrame.Offset, strSymbolInfo.c_str());
+	}
 
 	ConsoleLog(LOG_EMERGENCY, "CORE:\n");
 	ConsoleLog(LOG_EMERGENCY, "CORE: End of stack trace. Time to die.\n");
