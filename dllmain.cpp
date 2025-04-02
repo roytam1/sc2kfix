@@ -35,6 +35,7 @@ HMENU hGameMenu = NULL;
 FARPROC fpWinMMHookList[180] = { NULL };
 DWORD dwDetectedVersion = SC2KVERSION_UNKNOWN;
 DWORD dwSC2KAppTimestamp = 0;
+DWORD dwSC2KFixVersion = SC2KFIX_VERSION_MAJOR << 24 | SC2KFIX_VERSION_MINOR << 16 | SC2KFIX_VERSION_PATCH << 8;
 const char* szSC2KFixVersion = SC2KFIX_VERSION;
 const char* szSC2KFixReleaseTag = SC2KFIX_RELEASE_TAG;
 const char* szSC2KFixBuildInfo = __DATE__ " " __TIME__;
@@ -42,6 +43,7 @@ FILE* fdLog = NULL;
 BOOL bInSCURK = FALSE;
 BOOL bKurokoVMInitialized = FALSE;
 BOOL bUseAdvancedQuery = FALSE;
+BOOL bSkipLoadingMods = FALSE;
 
 //std::random_device rdRandomDevice;
 //std::mt19937 mtMersenneTwister(rdRandomDevice());
@@ -136,23 +138,26 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 		if (argv) {
 			for (int i = 0; i < argc; i++) {
-				if (!lstrcmpiW(argv[i], L"-console"))
-					bConsoleEnabled = TRUE;
-				if (!lstrcmpiW(argv[i], L"-defaults"))
-					bSkipLoadSettings = TRUE;
-				if (!lstrcmpiW(argv[i], L"-skipintro"))
-					bSkipIntro = TRUE;
 				if (!lstrcmpiW(argv[i], L"-advquery"))
 					bUseAdvancedQuery = TRUE;
+				if (!lstrcmpiW(argv[i], L"-console"))
+					bConsoleEnabled = TRUE;
 				if (!lstrcmpiW(argv[i], L"-debugall")) {
 					mci_debug = DEBUG_FLAGS_EVERYTHING;
 					military_debug = DEBUG_FLAGS_EVERYTHING;
 					mischook_debug = DEBUG_FLAGS_EVERYTHING;
+					modloader_debug = DEBUG_FLAGS_EVERYTHING;
 					mus_debug = DEBUG_FLAGS_EVERYTHING;
 					snd_debug = DEBUG_FLAGS_EVERYTHING;
 					timer_debug = DEBUG_FLAGS_EVERYTHING;
 					updatenotifier_debug = DEBUG_FLAGS_EVERYTHING;
 				}
+				if (!lstrcmpiW(argv[i], L"-defaults"))
+					bSkipLoadSettings = TRUE;
+				if (!lstrcmpiW(argv[i], L"-skipintro"))
+					bSkipIntro = TRUE;
+				if (!lstrcmpiW(argv[i], L"-skipmods"))
+					bSkipLoadingMods = TRUE;
 			}
 		}
 
@@ -355,6 +360,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 			ConsoleLog(LOG_INFO, "CORE: Starting console thread.\n");
 			hConsoleThread = CreateThread(NULL, 0, ConsoleThread, 0, 0, &dwConsoleThreadID);
 		}
+
+		// Load native code mods.
+		if (!bSkipLoadingMods && !bSettingsDontLoadMods)
+			LoadNativeCodeMods();
+
 		break;
 
 	// Nothing to do for these two cases

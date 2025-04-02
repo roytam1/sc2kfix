@@ -2,9 +2,11 @@
 // (c) 2025 sc2kfix project (https://sc2kfix.net) - released under the MIT license
 
 #pragma once
+#pragma warning(disable : 4200)
 
 #include <windows.h>
 #include <string>
+#include <list>
 #include <map>
 #include <vector>
 #include <algorithm>
@@ -25,10 +27,16 @@
 #define SC2KVERSION_1995    1
 #define SC2KVERSION_1996    2
 
-#define SC2KFIX_VERSION		"0.10-dev"
-#define SC2KFIX_RELEASE_TAG	"r9a"
+#define SC2KFIX_VERSION			"0.10-dev"
+#define SC2KFIX_VERSION_MAJOR	0
+#define SC2KFIX_VERSION_MINOR	10
+#define SC2KFIX_VERSION_PATCH	0
+#define SC2KFIX_RELEASE_TAG		"r9c"
 
-#define SC2KFIX_INIFILE     "sc2kfix.ini"
+#define SC2KFIX_INIFILE		"sc2kfix.ini"
+#define SC2KFIX_MODSFOLDER	"mods"
+
+#define HOOKEXT extern "C" __declspec(dllexport)
 
 #define countof(x) (sizeof(x)/sizeof(*(x)))
 #define lengthof(s) (countof(s)-1)
@@ -61,6 +69,39 @@ typedef struct {
 	UINT_PTR nSig;
 	void* pfn;
 } AFX_MSGMAP_ENTRY;
+
+typedef struct {
+	int iModInfoVersion;				// Mandatory
+
+	int iModVersionMajor;				// Mandatory
+	int iModVersionMinor;				// Mandatory
+	int iModVersionPatch;				// Mandatory
+	int iMinimumVersionMajor;			// Mandatory
+	int iMinimumVersionMinor;			// Mandatory
+	int iMinimumVersionPatch;			// Mandatory
+
+	const char* szModName;				// Mandatory
+	const char* szModShortName;			// Mandatory
+	const char* szModAuthor;			// Optional, but recommended
+	const char* szModDescription;		// Optional, but recommended
+} sc2kfix_mod_info_t;
+
+typedef struct {
+	const char* szHookName;
+	int iHookPriority;
+} sc2kfix_mod_hook_t;
+
+typedef struct {
+	int iHookCount;
+	sc2kfix_mod_hook_t stHooks[];
+} sc2kfix_mod_hooklist_t;
+
+typedef struct {
+	int iPriority;
+	void* pFunction;
+} hook_function_t;
+
+#include <hooklists.h>
 
 typedef BOOL (*console_cmdproc_t)(const char* szCommand, const char* szArguments);
 
@@ -133,13 +174,15 @@ const char *AdjustSource(char *buf, const char *path);
 
 void InitializeFonts(void);
 void CenterDialogBox(HWND hwndDlg);
-HWND CreateTooltip(HWND hDlg, HWND hControl, const char* szText);
-const char* HexPls(UINT uNumber, int width);
-void ConsoleLog(int iLogLevel, const char* fmt, ...);
+HOOKEXT HWND CreateTooltip(HWND hDlg, HWND hControl, const char* szText);
+HOOKEXT const char* HexPls(UINT uNumber, int width);
+HOOKEXT const char* FormatVersion(int iMajor, int iMinor, int iPatch);
+HOOKEXT void ConsoleLog(int iLogLevel, const char* fmt, ...);
 int GetTileID(int iTileX, int iTileY);
 const char* GetZoneName(int iZoneID);
 const char* GetLowHighScale(BYTE bScale);
-BOOL FileExists(const char* name);
+HOOKEXT BOOL FileExists(const char* name);
+HOOKEXT const char* GetModsFolderPath(void);
 HBITMAP CreateSpriteBitmap(int iSpriteID);
 BOOL WritePrivateProfileIntA(const char *section, const char *name, int value, const char *ini_name);
 void MigrateRegStringValue(HKEY hKey, const char *lpSubKey, const char *lpValueName, char *szOutBuf, DWORD dwLen);
@@ -179,6 +222,7 @@ BOOL ConsoleCmdShow(const char* szCommand, const char* szArguments);
 BOOL ConsoleCmdShowDebug(const char* szCommand, const char* szArguments);
 BOOL ConsoleCmdShowMemory(const char* szCommand, const char* szArguments);
 BOOL ConsoleCmdShowMicrosim(const char* szCommand, const char* szArguments);
+BOOL ConsoleCmdShowMods(const char* szCommand, const char* szArguments);
 BOOL ConsoleCmdShowSound(const char* szCommand, const char* szArguments);
 BOOL ConsoleCmdShowSprite(const char* szCommand, const char* szArguments);
 BOOL ConsoleCmdShowTile(const char* szCommand, const char* szArguments);
@@ -186,6 +230,8 @@ BOOL ConsoleCmdShowVersion(const char* szCommand, const char* szArguments);
 BOOL ConsoleCmdSet(const char* szCommand, const char* szArguments);
 BOOL ConsoleCmdSetDebug(const char* szCommand, const char* szArguments);
 BOOL ConsoleCmdSetTile(const char* szCommand, const char* szArguments);
+
+void LoadNativeCodeMods(void);
 
 DWORD WINAPI KurokoThread(LPVOID lpParameter);
 
@@ -198,6 +244,7 @@ extern HMENU hGameMenu;
 extern FARPROC fpWinMMHookList[180];
 extern DWORD dwDetectedVersion;
 extern DWORD dwSC2KAppTimestamp;
+extern DWORD dwSC2KFixVersion;
 extern const char* szSC2KFixVersion;
 extern const char* szSC2KFixReleaseTag;
 extern const char* szSC2KFixBuildInfo;
@@ -218,6 +265,8 @@ extern HFONT hFontArialRegular10;
 extern HFONT hFontArialBold10;
 extern HFONT hSystemRegular12;
 
+extern std::map<HMODULE, sc2kfix_mod_info_t> mapLoadedNativeMods;
+extern std::map<HMODULE, std::vector<sc2kfix_mod_hook_t>> mapLoadedNativeModHooks;
 extern std::map<DWORD, soundbufferinfo_t> mapSoundBuffers;
 extern std::vector<int> vectorRandomSongIDs;
 /*extern std::random_device rdRandomDevice;
@@ -254,6 +303,7 @@ void InstallRegistryPathingHooks_SCURK1996(void);
 extern UINT mci_debug;
 extern UINT military_debug;
 extern UINT mischook_debug;
+extern UINT modloader_debug;
 extern UINT mus_debug;
 extern UINT snd_debug;
 extern UINT timer_debug;
