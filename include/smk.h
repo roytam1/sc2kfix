@@ -2,7 +2,7 @@
 // (c) 2025 sc2kfix project (https://sc2kfix.net) - released under the MIT license
 
 #pragma once
-#include <stdint.h>
+#include "MSStdInt.h"
 
 typedef DWORD(__cdecl* SMKOpenPtr) (LPCSTR lpFileName, uint32_t uFlags, int32_t iExBuf);
 
