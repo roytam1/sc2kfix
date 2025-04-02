@@ -38,7 +38,8 @@ extern "C" void __stdcall Hook_LoadSoundBuffer(int iSoundID, void* lpBuffer) {
         mapSoundBuffers[(DWORD)lpBuffer].iSoundID = iSoundID;
         mapSoundBuffers[(DWORD)lpBuffer].iReloadCount++;
     } else {
-        mapSoundBuffers[(DWORD)lpBuffer] = { iSoundID, 1 };
+        mapSoundBuffers[(DWORD)lpBuffer].iSoundID = iSoundID;
+        mapSoundBuffers[(DWORD)lpBuffer].iReloadCount = 1;
     }
 
     if (mapReplacementSounds.find(iSoundID) != mapReplacementSounds.end() && bSettingsUseSoundReplacements) {

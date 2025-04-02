@@ -810,24 +810,19 @@ void InstallMiscHooks(void) {
 			ConsoleLog(LOG_DEBUG, "MISC: AppendMenuA #3 failed, error = 0x%08X.\n", GetLastError());
 			goto skipmenu;
 		}
+		afxMessageMapEntry[0].nMessage = WM_COMMAND;
+		afxMessageMapEntry[0].nCode = 0;
+		afxMessageMapEntry[0].nID = 40000;
+		afxMessageMapEntry[0].nLastID = 40000;
+		afxMessageMapEntry[0].nSig = 0x0A;
+		afxMessageMapEntry[0].pfn = ShowSettingsDialog;
 
-		afxMessageMapEntry[0] = {
-			WM_COMMAND,
-			0,
-			40000,
-			40000,
-			0x0A,
-			ShowSettingsDialog,
-		};
-
-		afxMessageMapEntry[1] = {
-			WM_COMMAND,
-			0,
-			40001,
-			40001,
-			0x0A,
-			ShowModSettingsDialog
-		};
+		afxMessageMapEntry[1].nMessage = WM_COMMAND;
+		afxMessageMapEntry[1].nCode = 0;
+		afxMessageMapEntry[1].nID = 40001;
+		afxMessageMapEntry[1].nLastID = 40001;
+		afxMessageMapEntry[1].nSig = 0x0A;
+		afxMessageMapEntry[1].pfn = ShowModSettingsDialog;
 
 		VirtualProtect((LPVOID)0x4D45C0, sizeof(afxMessageMapEntry), PAGE_EXECUTE_READWRITE, &dwDummy);
 		memcpy_s((LPVOID)0x4D45C0, sizeof(afxMessageMapEntry), &afxMessageMapEntry, sizeof(afxMessageMapEntry));
@@ -865,8 +860,20 @@ skipmenu:
 	// Copy the main menu's message map and update the runtime class to use it
 	VirtualProtect((LPVOID)0x4D513C, 4, PAGE_EXECUTE_READWRITE, &dwDummy);
 	memcpy_s(afxMessageMapMainMenu, sizeof(afxMessageMapMainMenu), (LPVOID)0x4D5140, sizeof(AFX_MSGMAP_ENTRY) * 8);
-	afxMessageMapMainMenu[7] = { WM_COMMAND, 0, 118, 118, 0x0A, ShowSettingsDialog };
-	afxMessageMapMainMenu[8] = { 0 };
+	afxMessageMapMainMenu[7].nMessage = WM_COMMAND;
+	afxMessageMapMainMenu[7].nCode = 0;
+	afxMessageMapMainMenu[7].nID = 118;
+	afxMessageMapMainMenu[7].nLastID = 118;
+	afxMessageMapMainMenu[7].nSig = 0x0A;
+	afxMessageMapMainMenu[7].pfn = ShowSettingsDialog;
+
+	afxMessageMapMainMenu[8].nMessage = 0;
+	afxMessageMapMainMenu[8].nCode = 0;
+	afxMessageMapMainMenu[8].nID = 0;
+	afxMessageMapMainMenu[8].nLastID = 0;
+	afxMessageMapMainMenu[8].nSig = 0;
+	afxMessageMapMainMenu[8].pfn = 0;
+
 	*(DWORD*)0x4D513C = (DWORD)afxMessageMapMainMenu;
 
 	// Skip over the strange bit of code that re-arranges the original main menu.

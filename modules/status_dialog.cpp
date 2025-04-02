@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include <intrin.h>
 #include <string>
-#include <regex>
 
 #include <sc2kfix.h>
 #include "../resource.h"
@@ -25,6 +24,14 @@ static RECT rcTemp, rcDlg, rcDesktop;
 static COLORREF crToolColor = RGB(0, 0, 0);
 static COLORREF crStatusColor = RGB(0, 0, 0);
 static HBRUSH hBrushBkg = NULL;
+
+std::string& str_replace(std::string& s, const std::string& from, const std::string& to)
+{
+    if(!from.empty())
+        for(size_t pos = 0; (pos = s.find(from, pos)) != std::string::npos; pos += to.size())
+            s.replace(pos, from.size(), to);
+    return s;
+}
 
 extern "C" int __stdcall Hook_402793(int iStatic, char* szText, int iMaybeAlways1, COLORREF crColor) {
 	__asm push ecx
@@ -46,7 +53,7 @@ extern "C" int __stdcall Hook_402793(int iStatic, char* szText, int iMaybeAlways
 			GetDlgItemText(hStatusDialog, IDC_STATIC_STATUSSTRING, szCurrentText, 200);
 
 			std::string strText = szText;
-			strText = std::regex_replace(strText, std::regex("&"), "&&");
+			str_replace(strText, "&", "&&");
 			if (crColor != crStatusColor || strcmp(strText.c_str(), szCurrentText)) {
 				SetDlgItemText(hStatusDialog, IDC_STATIC_STATUSSTRING, strText.c_str());
 				crStatusColor = crColor;

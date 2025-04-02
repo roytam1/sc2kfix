@@ -20,7 +20,6 @@
 #include <io.h>
 #include <fstream>
 #include <map>
-#include <regex>
 #include <string>
 
 #include <sc2kfix.h>
@@ -94,7 +93,7 @@ BOOL ConsoleCmdRun(const char* szCommand, const char* szArguments) {
 	}
 
 	// Iterate through the script and run lines until they fail
-	std::ifstream fsScriptFile(strPossibleScriptName);
+	std::ifstream fsScriptFile(strPossibleScriptName.c_str());
 	std::string strScriptLine;
 	int i = 1;
 	iConsoleScriptNest++;
@@ -388,8 +387,9 @@ BOOL ConsoleCmdShowSound(const char* szCommand, const char* szArguments) {
 	if (!strcmp(szArguments + 6, "buffers")) {
 		printf("Loaded WAV buffers:\n");
 		int i = 0;
-		for (const auto& iter : mapSoundBuffers)
-			printf("  %i: <0x%08X>   %i.wav   (reloads: %i)\n", i++, iter.first, iter.second.iSoundID, iter.second.iReloadCount);
+		std::map<DWORD, soundbufferinfo_t>::iterator iter;
+		for (iter = mapSoundBuffers.begin(); iter != mapSoundBuffers.end(); iter++)
+			printf("  %i: <0x%08X>   %i.wav   (reloads: %i)\n", i++, iter->first, iter->second.iSoundID, iter->second.iReloadCount);
 		return TRUE;
 	}
 

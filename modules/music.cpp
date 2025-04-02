@@ -27,7 +27,10 @@ UINT mus_debug = MUS_DEBUG;
 
 static DWORD dwDummy;
 
-std::vector<int> vectorRandomSongIDs = { 10001, 10004, 10008, 10012, 10018, 10003, 10007, 10011, 10013 };
+// C2552 workaround
+const int RandomSongCount = 9;
+int RandomSongIDs[RandomSongCount] = { 10001, 10004, 10008, 10012, 10018, 10003, 10007, 10011, 10013 };
+std::vector<int> vectorRandomSongIDs(RandomSongIDs, RandomSongIDs+RandomSongCount);
 int iCurrentSong = 0;
 DWORD dwMusicThreadID;
 MCIDEVICEID mciDevice = NULL;
@@ -103,7 +106,9 @@ DWORD WINAPI MusicThread(LPVOID lpParameter) {
 			if (bOptionsMusicEnabled && !mciDevice) {
 				if (msg.wParam >= 10000 && msg.wParam <= 10018) {
 					std::string strSongPath = (char*)0x4CDB88;      // szSoundsPath
-					strSongPath += std::to_string(msg.wParam);
+					std::string strSongNum;
+					STRING_PRINTF(strSongNum,"%d",msg.wParam);
+					strSongPath += strSongNum;
 					if (bSettingsUseMP3Music)
 						strSongPath += ".mp3";
 					else

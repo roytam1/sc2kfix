@@ -14,6 +14,25 @@
 #include <sc2k_1996.h>
 #include <music.h>
 
+#if defined(_MSC_VER) && _MSC_VER < 1600
+#define nullptr NULL
+#define LSTATUS LONG
+#endif
+
+#define STRING_PRINTF(str, ...)                                     \
+  do {                                                              \
+    const size_t write_point = str.size();                          \
+    str.resize(write_point + 127);                                  \
+    const int size = _snprintf(&str[write_point], 128, __VA_ARGS__);\
+    str.resize(write_point + size);                                 \
+    if (size < 128) {                                               \
+      break;                                                        \
+    }                                                               \
+                                                                    \
+    _snprintf(&str[write_point], size + 1, __VA_ARGS__);            \
+  } while (0)
+
+
 // Turning this on enables every debugging option. You have been warned.
 // #define DEBUGALL
 
@@ -125,6 +144,8 @@ extern BOOL bSettingsAlwaysSkipIntro;
 const char *AdjustSource(char *buf, const char *path);
 
 // Utility functions
+
+extern "C" HWND WINAPI GetConsoleWindow();
 
 // minimal shlwapi replacements
 BOOL WINAPI MyPathRemoveFileSpecA(char* path);

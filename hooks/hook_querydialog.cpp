@@ -21,6 +21,7 @@ BOOL CALLBACK AdvancedQueryDialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
 	WORD iTileY = iGlobalTileY;
 	std::string strTileHeader;
 	std::string strTileInfo;
+	std::string strTemp;
 	int iTileID;
 
 	switch (message) {
@@ -36,25 +37,32 @@ BOOL CALLBACK AdvancedQueryDialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
 			strTileHeader = szTileNames[iTileID];
 		
 		strTileHeader += "  (iTileID ";
-		strTileHeader += std::to_string(iTileID);
+		STRING_PRINTF(strTemp,"%d",iTileID);
+		strTileHeader += strTemp;
 		strTileHeader += " / ";
 		strTileHeader += HexPls(iTileID, 2);
 		strTileHeader += ")\nCoordinates:   X=";
-		strTileHeader += std::to_string(iTileX);
+		STRING_PRINTF(strTemp,"%d",iTileX);
+		strTileHeader += strTemp;
 		strTileHeader += "  Y=";
-		strTileHeader += std::to_string(iTileY);
+		STRING_PRINTF(strTemp,"%d",iTileY);
+		strTileHeader += strTemp;
 
 		// Build the data string
 		strTileInfo =  GetZoneName(dwMapXZON[iTileX]->b[iTileY].iZoneType);
 		strTileInfo += "\n";
 		
 		// Altitude/depth
-		if (dwMapXBIT[iTileX]->b[iTileY].iWater && dwMapALTM[iTileX]->w[iTileY].iLandAltitude < wWaterLevel)
-			strTileInfo += std::to_string(100 * (wWaterLevel - dwMapALTM[iTileX]->w[iTileY].iLandAltitude) - 50);
-		else if (dwMapXTER[iTileX]->iTileID[iTileY] && dwMapXTER[iTileX]->iTileID[iTileY] < 0x10)
-			strTileInfo += std::to_string(25 * (4 * (dwMapALTM[iTileX]->w[iTileY].iLandAltitude - wWaterLevel) + 4));
-		else
-			strTileInfo += std::to_string(100 * (dwMapALTM[iTileX]->w[iTileY].iLandAltitude - wWaterLevel) + 50);
+		if (dwMapXBIT[iTileX]->b[iTileY].iWater && dwMapALTM[iTileX]->w[iTileY].iLandAltitude < wWaterLevel) {
+			STRING_PRINTF(strTemp,"%d",100 * (wWaterLevel - dwMapALTM[iTileX]->w[iTileY].iLandAltitude) - 50);
+			strTileInfo += strTemp;
+		} else if (dwMapXTER[iTileX]->iTileID[iTileY] && dwMapXTER[iTileX]->iTileID[iTileY] < 0x10) {
+			STRING_PRINTF(strTemp,"%d",25 * (4 * (dwMapALTM[iTileX]->w[iTileY].iLandAltitude - wWaterLevel) + 4));
+			strTileInfo += strTemp;
+		} else {
+			STRING_PRINTF(strTemp,"%d",100 * (dwMapALTM[iTileX]->w[iTileY].iLandAltitude - wWaterLevel) + 50);
+			strTileInfo += strTemp;
+		}
 		strTileInfo += " feet ";
 		if (dwMapXBIT[iTileX]->b[iTileY].iWater && dwMapALTM[iTileX]->w[iTileY].iLandAltitude < wWaterLevel)
 			strTileInfo += "deep ";
@@ -64,19 +72,22 @@ BOOL CALLBACK AdvancedQueryDialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
 
 		// Land value
 		strTileInfo += "$";
-		strTileInfo += std::to_string(dwMapXVAL[iTileX >> 1]->bBlock[iTileY >> 1] + 1);
+		STRING_PRINTF(strTemp,"%d",dwMapXVAL[iTileX >> 1]->bBlock[iTileY >> 1] + 1);
+		strTileInfo += strTemp;
 		strTileInfo += ",000/acre\n";
 
 		// Crime
 		strTileInfo += GetLowHighScale(dwMapXCRM[iTileX >> 1]->bBlock[iTileY >> 1]);
 		strTileInfo += " (XCRM: ";
-		strTileInfo += std::to_string(dwMapXCRM[iTileX >> 1]->bBlock[iTileY >> 1]);
+		STRING_PRINTF(strTemp,"%d",dwMapXCRM[iTileX >> 1]->bBlock[iTileY >> 1]);
+		strTileInfo += strTemp;
 		strTileInfo += ")\n";
 
 		// Pollution
 		strTileInfo += GetLowHighScale(dwMapXPLT[iTileX >> 1]->bBlock[iTileY >> 1]);
 		strTileInfo += " (XPLT: ";
-		strTileInfo += std::to_string(dwMapXPLT[iTileX >> 1]->bBlock[iTileY >> 1]);
+		STRING_PRINTF(strTemp,"%d",dwMapXPLT[iTileX >> 1]->bBlock[iTileY >> 1]);
+		strTileInfo += strTemp;
 		strTileInfo += ")\n\n";
 
 		// Raw XZON data
@@ -175,11 +186,16 @@ BOOL CALLBACK AdvancedQueryDialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
 		else {
 			int iMicrosimID = dwMapXTXT[iTileX]->bTextOverlay[iTileY] - 0x33;
 			strTileInfo += GetXLABEntry(iMicrosimID + 0x33);
-			strTileInfo += " (iMicrosimID " + std::to_string(iMicrosimID) + " / " + HexPls(iMicrosimID, 2) + ")\n";
-			strTileInfo += std::to_string(pMicrosimArr[iMicrosimID].bMicrosimData[0]) + " / " + HexPls(pMicrosimArr[iMicrosimID].bMicrosimData[0], 2) + "\n";
-			strTileInfo += std::to_string(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[1])) + " / " + HexPls(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[1]), 2) + "\n";
-			strTileInfo += std::to_string(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[3])) + " / " + HexPls(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[3]), 2) + "\n";
-			strTileInfo += std::to_string(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[5])) + " / " + HexPls(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[5]), 2);
+			STRING_PRINTF(strTemp,"%d",iMicrosimID);
+			strTileInfo += " (iMicrosimID " + strTemp + " / " + HexPls(iMicrosimID, 2) + ")\n";
+			STRING_PRINTF(strTemp,"%d",pMicrosimArr[iMicrosimID].bMicrosimData[0]);
+			strTileInfo += strTemp + " / " + HexPls(pMicrosimArr[iMicrosimID].bMicrosimData[0], 2) + "\n";
+			STRING_PRINTF(strTemp,"%d",*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[1]));
+			strTileInfo += strTemp + " / " + HexPls(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[1]), 2) + "\n";
+			STRING_PRINTF(strTemp,"%d",*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[3]));
+			strTileInfo += strTemp + " / " + HexPls(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[3]), 2) + "\n";
+			STRING_PRINTF(strTemp,"%d",*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[5]));
+			strTileInfo += strTemp + " / " + HexPls(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[5]), 2);
 		}
 
 		SetDlgItemText(hwndDlg, IDC_STATIC_TILENAME, strTileHeader.c_str());
