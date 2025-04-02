@@ -79,21 +79,158 @@ BYTE bAnimationPatch1995[30] = {
 	0x00, 0x5D, 0x5F, 0x5E, 0x5B, 0xC3
 };
 
+typedef HWND (WINAPI *PFN_GETCONSOLEWINDOW)();
+static PFN_GETCONSOLEWINDOW pfnGetConsoleWindow = nullptr;
+HWND WINAPI
+_CompatGetConsoleWindow()
+{
+	#define MY_BUFSIZE 1024 // Buffer size for console window titles.
+	HWND hwndFound;         // This is what is returned to the caller.
+	char pszNewWindowTitle[MY_BUFSIZE]; // Contains fabricated
+										// WindowTitle.
+	char pszOldWindowTitle[MY_BUFSIZE]; // Contains original
+										// WindowTitle.
+
+	// Fetch current window title.
+
+	GetConsoleTitleA(pszOldWindowTitle, MY_BUFSIZE);
+
+	// Format a "unique" NewWindowTitle.
+
+	wsprintfA(pszNewWindowTitle,"%d/%d",
+				GetTickCount(),
+				GetCurrentProcessId());
+
+	// Change current window title.
+	SetConsoleTitleA(pszNewWindowTitle);
+
+	// Ensure window title has been updated.
+	Sleep(40);
+
+	// Look for NewWindowTitle.
+	hwndFound=FindWindowA(NULL, pszNewWindowTitle);
+
+// Restore original window title.
+	SetConsoleTitleA(pszOldWindowTitle);
+
+	return hwndFound;
+}
+extern "C" HWND WINAPI
+LibGetConsoleWindow()
+{
+    if (!pfnGetConsoleWindow)
+    {
+        // Check if the API is provided by kernel32, otherwise fall back to our implementation.
+        HMODULE hKernel32 = GetModuleHandleW(L"kernel32");
+        pfnGetConsoleWindow = reinterpret_cast<PFN_GETCONSOLEWINDOW>(GetProcAddress(hKernel32, "GetConsoleWindow"));
+        if (!pfnGetConsoleWindow)
+        {
+            pfnGetConsoleWindow = _CompatGetConsoleWindow;
+        }
+    }
+
+    return pfnGetConsoleWindow();
+}
+
+    PCHAR*
+    CommandLineToArgvA(
+        PCHAR CmdLine,
+        int* _argc
+        )
+    {
+        PCHAR* argv;
+        PCHAR  _argv;
+        ULONG   len;
+        ULONG   argc;
+        CHAR   a;
+        ULONG   i, j;
+
+        BOOLEAN  in_QM;
+        BOOLEAN  in_TEXT;
+        BOOLEAN  in_SPACE;
+
+        len = strlen(CmdLine);
+        i = ((len+2)/2)*sizeof(PVOID) + sizeof(PVOID);
+
+        argv = (PCHAR*)GlobalAlloc(GMEM_FIXED,
+            i + (len+2)*sizeof(CHAR));
+
+        _argv = (PCHAR)(((PUCHAR)argv)+i);
+
+        argc = 0;
+        argv[argc] = _argv;
+        in_QM = FALSE;
+        in_TEXT = FALSE;
+        in_SPACE = TRUE;
+        i = 0;
+        j = 0;
+
+        while( a = CmdLine[i] ) {
+            if(in_QM) {
+                if(a == '\"') {
+                    in_QM = FALSE;
+                } else {
+                    _argv[j] = a;
+                    j++;
+                }
+            } else {
+                switch(a) {
+                case '\"':
+                    in_QM = TRUE;
+                    in_TEXT = TRUE;
+                    if(in_SPACE) {
+                        argv[argc] = _argv+j;
+                        argc++;
+                    }
+                    in_SPACE = FALSE;
+                    break;
+                case ' ':
+                case '\t':
+                case '\n':
+                case '\r':
+                    if(in_TEXT) {
+                        _argv[j] = '\0';
+                        j++;
+                    }
+                    in_TEXT = FALSE;
+                    in_SPACE = TRUE;
+                    break;
+                default:
+                    in_TEXT = TRUE;
+                    if(in_SPACE) {
+                        argv[argc] = _argv+j;
+                        argc++;
+                    }
+                    _argv[j] = a;
+                    j++;
+                    in_SPACE = FALSE;
+                    break;
+                }
+            }
+            i++;
+        }
+        _argv[j] = '\0';
+        argv[argc] = NULL;
+
+        (*_argc) = argc;
+        return argv;
+    }
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 	int argc = 0;
-	LPWSTR* argv = NULL;
+	LPSTR* argv = NULL;
 	BOOL bSkipLoadSettings = FALSE;
+	char szModuleBaseName[MAX_PATH];
 	INITCOMMONCONTROLSEX icc = { sizeof(INITCOMMONCONTROLSEX), ICC_WIN95_CLASSES };
 
 	switch (reason) {
 	case DLL_PROCESS_ATTACH:
-		char szModuleBaseName[200];
 		// Save our own module handle
 		hSC2KFixModule = hModule;
 
 		// Find the actual WinMM library
-		char buf[200];
-		GetSystemDirectory(buf, 200);
+		char buf[MAX_PATH];
+		GetSystemDirectory(buf, MAX_PATH);
 		strcat_s(buf, "\\winmm.dll");
 
 		// Load the actual WinMM library
@@ -102,25 +239,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 			return FALSE;
 		}
 
-		std::srand(time(NULL));
-
-		// Retrieve the list of functions we need to hook or pass through to WinMM
-		ALLEXPORTS_HOOKED(GETPROC);
-		ALLEXPORTS_PASSTHROUGH(GETPROC);
-
 		// Get our command line. WARNING: This uses WIDE STRINGS.
-		argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+		argv = CommandLineToArgvA(GetCommandLineA(), &argc);
 		if (argv) {
 			for (int i = 0; i < argc; i++) {
-				if (!lstrcmpiW(argv[i], L"-console"))
+				if (!lstrcmpiA(argv[i], "-console"))
 					bConsoleEnabled = TRUE;
-				if (!lstrcmpiW(argv[i], L"-defaults"))
+				if (!lstrcmpiA(argv[i], "-defaults"))
 					bSkipLoadSettings = TRUE;
-				if (!lstrcmpiW(argv[i], L"-skipintro"))
+				if (!lstrcmpiA(argv[i], "-skipintro"))
 					bSkipIntro = TRUE;
-				if (!lstrcmpiW(argv[i], L"-advquery"))
+				if (!lstrcmpiA(argv[i], "-advquery"))
 					bUseAdvancedQuery = TRUE;
-				if (!lstrcmpiW(argv[i], L"-debugall")) {
+				if (!lstrcmpiA(argv[i], "-debugall")) {
 					mci_debug = DEBUG_FLAGS_EVERYTHING;
 					military_debug = DEBUG_FLAGS_EVERYTHING;
 					mischook_debug = DEBUG_FLAGS_EVERYTHING;
@@ -135,13 +266,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		// Check to see whether we're attaching against a valid binary
 		// (Based on the filename). Otherwise breakout.
 		// just use argv[0] instead of getting from psapi
-		WideCharToMultiByte(CP_ACP, 0, argv[0], -1, szModuleBaseName, 200, NULL, NULL);
+		strcpy(szModuleBaseName, argv[0]);
 		MyPathStripPathA(szModuleBaseName);
 		MyPathRemoveExtensionA(szModuleBaseName);
 		if (!(_stricmp(szModuleBaseName, "winscurk") == 0 ||
 			_stricmp(szModuleBaseName, "simcity") == 0)) {
 			break;
 		}
+
+		std::srand(time(NULL));
+
+		// Retrieve the list of functions we need to hook or pass through to WinMM
+		ALLEXPORTS_HOOKED(GETPROC);
+		ALLEXPORTS_PASSTHROUGH(GETPROC);
 
 		// Save the SimCity 2000 EXE's module handle
 		if (!(hSC2KAppModule = GetModuleHandle(NULL))) {
@@ -184,7 +321,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 			freopen_s(&fdDummy, "CONOUT$", "w", stderr);
 
 			// Set the console window icon
-			HWND hConsoleWindow = GetConsoleWindow();
+			HWND hConsoleWindow = LibGetConsoleWindow();
 			SendMessage(hConsoleWindow, WM_SETICON, ICON_BIG, (LPARAM)LoadIcon(hSC2KFixModule, MAKEINTRESOURCE(IDI_TOPSECRET)));
 			SendMessage(hConsoleWindow, WM_SETICON, ICON_SMALL, (LPARAM)LoadIcon(hSC2KFixModule, MAKEINTRESOURCE(IDI_TOPSECRET)));
 		}
