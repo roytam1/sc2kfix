@@ -13,7 +13,6 @@
 #include <smk.h>
 #include <sc2k_1996.h>
 #include <music.h>
-#include <json.hpp>
 
 // Turning this on enables every debugging option. You have been warned.
 // #define DEBUGALL
@@ -151,8 +150,6 @@ void MigrateRegBOOLValue(HKEY hKey, const char *lpSubKey, const char *lpValueNam
 int MaxisDecompress(BYTE* pBuffer, size_t iBufSize, BYTE* pCompressedData, int iCompressedSize);
 std::string Base64Encode(const unsigned char* pSrcData, size_t iSrcCount);
 size_t Base64Decode(BYTE* pBuffer, size_t iBufSize, const unsigned char* pSrcData, size_t iSrcCount);
-json::JSON EncodeDWORDArray(DWORD* dwArray, size_t iCount, BOOL bBigEndian);
-void DecodeDWORDArray(DWORD* dwArray, json::JSON jsonArray, size_t iCount, BOOL bBigEndian);
 
 // Globals etc.
 
