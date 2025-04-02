@@ -1,0 +1,41 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 9.00
+# Visual Studio 2005
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "sc2kfix", "sc2kfix.vcproj", "{ABBB798D-95CF-4745-8B96-9EA628794AB7}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Itanium = Debug|Itanium
+		Debug|Win32 = Debug|Win32
+		Debug|x64 = Debug|x64
+		Release|Itanium = Release|Itanium
+		Release|Win32 = Release|Win32
+		Release|x64 = Release|x64
+		Static Release|Itanium = Static Release|Itanium
+		Static Release|Win32 = Static Release|Win32
+		Static Release|x64 = Static Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Debug|Itanium.ActiveCfg = Debug|Itanium
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Debug|Itanium.Build.0 = Debug|Itanium
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Debug|Win32.ActiveCfg = Debug|Win32
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Debug|Win32.Build.0 = Debug|Win32
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Debug|x64.ActiveCfg = Debug|x64
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Debug|x64.Build.0 = Debug|x64
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Release|Itanium.ActiveCfg = Release|Itanium
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Release|Itanium.Build.0 = Release|Itanium
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Release|Win32.ActiveCfg = Release|Win32
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Release|Win32.Build.0 = Release|Win32
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Release|x64.ActiveCfg = Release|x64
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Release|x64.Build.0 = Release|x64
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Static Release|Itanium.ActiveCfg = Static Release|Itanium
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Static Release|Itanium.Build.0 = Static Release|Itanium
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Static Release|Win32.ActiveCfg = Static Release|Win32
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Static Release|Win32.Build.0 = Static Release|Win32
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Static Release|x64.ActiveCfg = Static Release|x64
+		{ABBB798D-95CF-4745-8B96-9EA628794AB7}.Static Release|x64.Build.0 = Static Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
