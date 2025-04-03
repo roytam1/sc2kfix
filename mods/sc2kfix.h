@@ -4,8 +4,13 @@
 #pragma once
 #pragma warning(disable : 4200)
 
-#define HOOKEXT	extern "C" __declspec(dllimport)
-#define HOOKCB	extern "C" __declspec(dllexport)
+#include <string>
+
+#define HOOKEXT		extern "C" __declspec(dllimport)
+#define HOOKEXT_CPP	__declspec(dllimport)
+#define HOOKCB		extern "C" __declspec(dllexport)
+
+#include "../include/json.hpp"
 
 #define IFF_HEAD(a, b, c, d) ((DWORD)d << 24 | (DWORD)c << 16 | (DWORD)b << 8 | (DWORD)a)
 
@@ -33,6 +38,11 @@ enum {
 };
 
 typedef struct {
+	const char* szHookName;
+	int iHookPriority;
+} sc2kfix_mod_hook_t;
+
+typedef struct {
 	int iModInfoVersion;				// Mandatory
 
 	int iModVersionMajor;				// Mandatory
@@ -46,18 +56,25 @@ typedef struct {
 	const char* szModShortName;			// Mandatory
 	const char* szModAuthor;			// Optional, but recommended
 	const char* szModDescription;		// Optional, but recommended
+
+	int iHookCount;						// Mandatory
+	sc2kfix_mod_hook_t* pstHooks;		// Mandatory
 } sc2kfix_mod_info_t;
 
-typedef struct {
-	const char* szHookName;
-	int iHookPriority;
-} sc2kfix_mod_hook_t;
 
-typedef struct {
-	int iHookCount;
-	sc2kfix_mod_hook_t stHooks[];
-} sc2kfix_mod_hooklist_t;
+#define HOOKS_COUNT(st) (sizeof(st) / sizeof(sc2kfix_mod_hook_t))
 
+HOOKEXT void CenterDialogBox(HWND hwndDlg);
 HOOKEXT HWND CreateTooltip(HWND hDlg, HWND hControl, const char* szText);
 HOOKEXT const char* HexPls(UINT uNumber, int width);
+HOOKEXT const char* FormatVersion(int iMajor, int iMinor, int iPatch);
 HOOKEXT void ConsoleLog(int iLogLevel, const char* fmt, ...);
+HOOKEXT const char* GetLowHighScale(BYTE bScale);
+HOOKEXT BOOL FileExists(const char* name);
+HOOKEXT const char* GetModsFolderPath(void);
+HOOKEXT BOOL WritePrivateProfileIntA(const char* section, const char* name, int value, const char* ini_name);
+
+HOOKEXT_CPP std::string Base64Encode(const unsigned char* pSrcData, size_t iSrcCount);
+HOOKEXT_CPP size_t Base64Decode(BYTE* pBuffer, size_t iBufSize, const unsigned char* pSrcData, size_t iSrcCount);
+HOOKEXT_CPP json::JSON EncodeDWORDArray(DWORD* dwArray, size_t iCount, BOOL bBigEndian);
+HOOKEXT_CPP void DecodeDWORDArray(DWORD* dwArray, json::JSON jsonArray, size_t iCount, BOOL bBigEndian);

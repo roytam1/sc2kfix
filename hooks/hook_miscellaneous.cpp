@@ -246,6 +246,8 @@ extern "C" void __stdcall Hook_ApparentExit(void) {
 	*((DWORD *)pThis + 63) = dwOldVal2;
 }
 
+std::vector<hook_function_t> stHooks_Hook_OnNewCity_Before;
+
 static BOOL CALLBACK Hook_NewCityDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam) {
 	switch (message) {
 	case WM_INITDIALOG:
@@ -258,6 +260,12 @@ static BOOL CALLBACK Hook_NewCityDialogProc(HWND hwndDlg, UINT message, WPARAM w
 			strcpy_s(szTempMayorName, 24, szSettingsMayorName);
 
 		strcpy_s(dwMapXLAB[0]->szLabel, 24, szTempMayorName);
+
+		// XXX - this should probably be moved to a separate proper hook into the game itself
+		for (auto hook : stHooks_Hook_OnNewCity_Before) {
+			void (*fnHook)(void) = (void(*)(void))hook.pFunction;
+			fnHook();
+		}
 		break;
 	}
 
@@ -301,6 +309,170 @@ extern "C" void __stdcall Hook_LoadNeighborConnections1500(void) {
 
 	if (mischook_debug & MISCHOOK_DEBUG_SAVES)
 		ConsoleLog(LOG_DEBUG, "SAVE: Loaded %d $1500 neighbor connections.\n", *wCityNeighborConnections1500);
+}
+
+extern "C" int __cdecl Hook_ItemPlacementCheck(unsigned __int16 m_x, int m_y, __int16 iTileID, __int16 iTileArea) {
+	__int16 iArea;
+	__int16 iMarinaCount;
+	__int16 iX[2];
+	__int16 iY[2];
+	__int16 iTile;
+	unsigned __int8 iBuilding;
+	int iItemWidth;
+	int iItemLength;
+	int iItemDepth;
+	__int16 iMapBit;
+	__int16 iSection[3];
+	char cMSimBit;
+	BYTE *pZone;
+
+	unsigned __int16 x = m_x;
+	int y = P_LOWORD(m_y);
+
+	iArea = iTileArea - 1;
+	if (iArea > 1) {
+		--x;
+		P_LOWORD(y) = y - 1;
+	}
+	iMarinaCount = 0;
+	iX[0] = x;
+	iItemWidth = (__int16)x + iArea;
+	if (iItemWidth >= (__int16)x) {
+		iTile = iTileID;
+		iItemLength = iArea + (__int16)y;
+		while (1) {
+			iY[0] = y;
+			if (iItemLength >= (__int16)y)
+				break;
+		GOBACK:
+			if (++iX[0] > iItemWidth)
+				goto GOFORWARD;
+		}
+		while (1) {
+			if (iArea <= 0) {
+				if ((unsigned __int16)iX[0] >= 0x80u || (unsigned __int16)iY[0] >= 0x80u)
+					return 0;
+			}
+			else if (iX[0] < 1 || iY[0] < 1 || iX[0] > 126 || iY[0] > 126) {
+				return 0;
+			}
+			iBuilding = dwMapXBLD[iX[0]]->iTileID[iY[0]];
+			if (iBuilding >= TILE_ROAD_LR) {
+				return 0;
+			}
+			if (iBuilding == TILE_RADIOACTIVITY) {
+				return 0;
+			}
+			if (iBuilding == TILE_SMALLPARK) {
+				return 0;
+			}
+			//if (dwMapXZON[iX[0]]->b[iY[0]].iZoneType == ZONE_MILITARY) {
+			//	return 0; // This is where it stops during the military zone checking process.
+			//}
+			if (iTileID == TILE_INFRASTRUCTURE_MARINA) {
+				if ((unsigned __int16)iX[0] < 0x80u &&
+					(unsigned __int16)iY[0] < 0x80u &&
+					dwMapXBIT[iX[0]]->b[iY[0]].iWater != 0) {
+					++iMarinaCount;
+					goto GOSKIP;
+				}
+				if (dwMapXTER[iX[0]]->iTileID[iY[0]]) {
+					return 0;
+				}
+			}
+			if (dwMapXTER[iX[0]]->iTileID[iY[0]]) {
+				return 0;
+			}
+			if ((unsigned __int16)iX[0] < 0x80u &&
+				(unsigned __int16)iY[0] < 0x80u &&
+				dwMapXBIT[iX[0]]->b[iY[0]].iWater != 0) {
+				return 0;
+			}
+		GOSKIP:
+			if (++iY[0] > iItemLength) {
+				goto GOBACK;
+			}
+		}
+	}
+	iTile = iTileID;
+GOFORWARD:
+	if (iTile == TILE_INFRASTRUCTURE_MARINA && (!iMarinaCount || iMarinaCount == 9)) {
+		Game_AfxMessageBox(107, 0, -1);
+		return 0;
+	}
+	else {
+		if (iTile == TILE_SERVICES_BIGPARK || (iMapBit = -32, iTile == TILE_SMALLPARK)) { // The initial setting of iMapBit to -32 isn't present in the DOS version.
+			iMapBit = 32;
+		}
+		else {
+			iMapBit = 224; // Present in the DOS version.
+		}
+		if (iTile == TILE_SMALLPARK && dwMapXBLD[x]->iTileID[y] > TILE_SMALLPARK) {
+			return 0;
+		}
+		else {
+			iX[1] = x;
+			cMSimBit = Game_SimulationProvisionMicrosim(x, y, iTile);
+			if (iItemWidth >= (__int16)x) {
+				iItemDepth = (__int16)y + iArea;
+				do {
+					for (int i = y; i <= iItemDepth; ++i) {
+						if (iX[1] > -1) {
+							if (iX[1] < 128 && (unsigned __int16)i < 0x80u) {
+								*(BYTE *)&dwMapXBIT[iX[1]]->b[i] &= 0x1Fu;
+							}
+							if ((unsigned __int16)iX[1] < 0x80u && (unsigned __int16)i < 0x80u) {
+								*(BYTE *)&dwMapXBIT[iX[1]]->b[i] |= iMapBit;
+							}
+						}
+						Game_PlaceTileWithMilitaryCheck(iX[1], i, iTile);
+						if (iX[1] > -1) {
+							if (iX[1] < 128 && (unsigned __int16)i < 0x80u) {
+								*(BYTE *)&dwMapXZON[iX[1]]->b[i] &= 0xF0u;
+							}
+							if ((unsigned __int16)iX[1] < 0x80u && (unsigned __int16)i < 0x80u) {
+								*(BYTE *)&dwMapXZON[iX[1]]->b[i] &= 0xFu;
+							}
+						}
+						if (cMSimBit) {
+							*(BYTE *)&dwMapXTXT[iX[1]]->bTextOverlay[i] = cMSimBit;
+						}
+					}
+					++iX[1];
+				} while (iX[1] <= iItemWidth);
+			}
+			if (iArea) {
+				if (x < 0x80u && (unsigned __int16)y < 0x80u) {
+					pZone = (BYTE *)&dwMapXZON[x]->b[y];
+					*pZone = P_LOBYTE(wSomePositionalAngleOne[4 * wViewRotation]) | *pZone & 0xF;
+				}
+				iSection[0] = iArea + x;
+				if ((__int16)(iArea + x) > -1 && iSection[0] < 128 && (unsigned __int16)y < 0x80u) {
+					pZone = (BYTE *)&dwMapXZON[iSection[0]]->b[y];
+					*pZone = P_LOBYTE(wSomePositionalAngleTwo[4 * wViewRotation]) | *pZone & 0xF;
+				}
+				if ((unsigned __int16)iSection[0] < 0x80u) {
+					iSection[1] = y + iArea;
+					if ((__int16)(y + iArea) > -1 && iSection[1] < 128) {
+						pZone = (BYTE *)&dwMapXZON[iSection[0]]->b[iSection[1]];
+						*pZone = P_LOBYTE(wSomePositionalAngleThree[4 * wViewRotation]) | *pZone & 0xF;
+					}
+				}
+				if (x < 0x80u) {
+					iSection[2] = iArea + y;
+					if ((__int16)(iArea + y) > -1 && iSection[2] < 128) {
+						pZone = (BYTE *)&dwMapXZON[x]->b[iSection[2]];
+						*pZone = P_LOBYTE(wSomePositionalAngleFour[4 * wViewRotation]) | *pZone & 0xF;
+					}
+				}
+			}
+			else if (x < 0x80u && (unsigned __int16)y < 0x80u) {
+				*(BYTE *)&dwMapXZON[x]->b[y] |= 0xF0u;
+			}
+			Game_SpawnItem(x, y + iArea);
+			return 1;
+		}
+	}
 }
 
 // Window title hook, part 1
@@ -348,6 +520,26 @@ __asm {
 
 def:
 		push 0x413ABF
+		retn
+	}
+}
+
+std::vector<hook_function_t> stHooks_Hook_SimulationProcessTickDaySwitch_After;
+
+extern "C" void _declspec(naked) Hook_SimulationProcessTickDaySwitch_After(void) {
+	for (auto hook : stHooks_Hook_SimulationProcessTickDaySwitch_After) {
+		void (*fnHook)(void) = (void(*)(void))hook.pFunction;
+		fnHook();
+	}
+
+	// Original cleanup from 0x413ABF
+	__asm {
+		mov eax, [ebp-0x0C]
+		pop esi
+		mov fs:0, eax
+		pop ebx
+		mov esp, ebp
+		pop ebp
 		retn
 	}
 }
@@ -642,7 +834,6 @@ extern "C" __int16 __cdecl Hook_MapToolMenuAction(int iMouseKeys, POINT pt) {
 
 // Placeholder.
 void ShowModSettingsDialog(void) {
-	ConsoleLog(LOG_DEBUG, "FUCK");
 	MessageBox(NULL, "The mod settings dialog has not yet been implemented. Check back later.", "sc2fix", MB_OK);
 }
 
@@ -705,6 +896,10 @@ void InstallMiscHooks(void) {
 	VirtualProtect((LPVOID)0x434BEA, 6, PAGE_EXECUTE_READWRITE, &dwDummy);
 	NEWCALL((LPVOID)0x434BEA, Hook_LoadNeighborConnections1500);
 	*(BYTE*)0x434BEF = 0x90;
+
+	// Hook into what appears to be one of the item placement checking functions
+	VirtualProtect((LPVOID)0x4027F2, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
+	NEWJMP((LPVOID)0x4027F2, Hook_ItemPlacementCheck);
 
 	// Military base hooks
 	InstallMilitaryHooks();
@@ -772,13 +967,15 @@ void InstallMiscHooks(void) {
 	VirtualProtect((LPVOID)0x40103C, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
 	NEWJMP((LPVOID)0x40103C, Hook_40103C);
 
-	// Window title calendar
+	// Window title calendar and modding hooks for SimulationProcessTick
 	VirtualProtect((LPVOID)0x40D67D, 10, PAGE_EXECUTE_READWRITE, &dwDummy);
 	NEWCALL((LPVOID)0x40D67D, Hook_40D67D);
 	memset((LPVOID)0x40D682, 0x90, 5);
 	VirtualProtect((LPVOID)0x4135D2, 9, PAGE_EXECUTE_READWRITE, &dwDummy);
 	NEWJMP((LPVOID)0x4135D2, Hook_SimulationProcessTickDaySwitch);
 	memset((LPVOID)0x4135D7, 0x90, 4);
+	VirtualProtect((LPVOID)0x413ABF, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
+	NEWJMP((LPVOID)0x413ABF, Hook_SimulationProcessTickDaySwitch_After);
 
 	// Hook SimulationStartDisaster
 	VirtualProtect((LPVOID)0x402527, 5, PAGE_EXECUTE_READWRITE, &dwDummy);

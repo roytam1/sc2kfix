@@ -15,13 +15,14 @@
 #include <smk.h>
 #include <sc2k_1996.h>
 #include <music.h>
-#include <json.hpp>
 
 // Turning this on enables every debugging option. You have been warned.
 // #define DEBUGALL
 
 // Turning this on forces the console to be enabled, as if -console was passed to SIMCITY.EXE.
 // #define CONSOLE_ENABLED
+
+#define SC2KFIX_CORE
 
 #define SC2KVERSION_UNKNOWN 0
 #define SC2KVERSION_1995    1
@@ -37,12 +38,28 @@
 #define SC2KFIX_MODSFOLDER	"mods"
 
 #define HOOKEXT extern "C" __declspec(dllexport)
+#define HOOKEXT_CPP __declspec(dllexport)
+
+#include <json.hpp>
 
 #define countof(x) (sizeof(x)/sizeof(*(x)))
 #define lengthof(s) (countof(s)-1)
 
 // The nearest equivalent of LOWORD() from IDA.
+#define P_LAST_IND(x,part_type)    (sizeof(x)/sizeof(part_type) - 1)
+#if defined(__BYTE_ORDER) && __BYTE_ORDER == __BIG_ENDIAN
+#  define P_LOW_IND(x,part_type)   P_LAST_IND(x,part_type)
+#  define P_HIGH_IND(x,part_type)  0
+#else
+#  define P_HIGH_IND(x,part_type)  P_LAST_IND(x,part_type)
+#  define P_LOW_IND(x,part_type)   0
+#endif
+#define P_BYTEn(x, n) (*((BYTE*)&(x)+n))
+#define P_LOBYTE(x) P_BYTEn(x,P_LOW_IND(x,BYTE))
 #define P_LOWORD(x) (*((uint16_t*)&(x)))
+#define P_HIWORD(x) (*((uint16_t*)&(x)+1))
+// Signed
+#define P_SHIWORD(x) (*((int16_t*)&(x)+1))
 
 #define IFF_HEAD(a, b, c, d) ((DWORD)d << 24 | (DWORD)c << 16 | (DWORD)b << 8 | (DWORD)a)
 
@@ -71,6 +88,11 @@ typedef struct {
 } AFX_MSGMAP_ENTRY;
 
 typedef struct {
+	const char* szHookName;
+	int iHookPriority;
+} sc2kfix_mod_hook_t;
+
+typedef struct {
 	int iModInfoVersion;				// Mandatory
 
 	int iModVersionMajor;				// Mandatory
@@ -84,17 +106,10 @@ typedef struct {
 	const char* szModShortName;			// Mandatory
 	const char* szModAuthor;			// Optional, but recommended
 	const char* szModDescription;		// Optional, but recommended
+
+	int iHookCount;						// Mandatory
+	sc2kfix_mod_hook_t* stHooks;		// Mandatory
 } sc2kfix_mod_info_t;
-
-typedef struct {
-	const char* szHookName;
-	int iHookPriority;
-} sc2kfix_mod_hook_t;
-
-typedef struct {
-	int iHookCount;
-	sc2kfix_mod_hook_t stHooks[];
-} sc2kfix_mod_hooklist_t;
 
 typedef struct {
 	int iPriority;
@@ -173,26 +188,24 @@ const char *AdjustSource(char *buf, const char *path);
 // Utility functions
 
 void InitializeFonts(void);
-void CenterDialogBox(HWND hwndDlg);
+HOOKEXT void CenterDialogBox(HWND hwndDlg);
 HOOKEXT HWND CreateTooltip(HWND hDlg, HWND hControl, const char* szText);
 HOOKEXT const char* HexPls(UINT uNumber, int width);
 HOOKEXT const char* FormatVersion(int iMajor, int iMinor, int iPatch);
 HOOKEXT void ConsoleLog(int iLogLevel, const char* fmt, ...);
-int GetTileID(int iTileX, int iTileY);
-const char* GetZoneName(int iZoneID);
-const char* GetLowHighScale(BYTE bScale);
+HOOKEXT const char* GetLowHighScale(BYTE bScale);
 HOOKEXT BOOL FileExists(const char* name);
 HOOKEXT const char* GetModsFolderPath(void);
 HBITMAP CreateSpriteBitmap(int iSpriteID);
-BOOL WritePrivateProfileIntA(const char *section, const char *name, int value, const char *ini_name);
+HOOKEXT BOOL WritePrivateProfileIntA(const char *section, const char *name, int value, const char *ini_name);
 void MigrateRegStringValue(HKEY hKey, const char *lpSubKey, const char *lpValueName, char *szOutBuf, DWORD dwLen);
 void MigrateRegDWORDValue(HKEY hKey, const char *lpSubKey, const char *lpValueName, DWORD *dwOut, DWORD dwSize);
 void MigrateRegBOOLValue(HKEY hKey, const char *lpSubKey, const char *lpValueName, BOOL *bOut);
 int MaxisDecompress(BYTE* pBuffer, size_t iBufSize, BYTE* pCompressedData, int iCompressedSize);
-std::string Base64Encode(const unsigned char* pSrcData, size_t iSrcCount);
-size_t Base64Decode(BYTE* pBuffer, size_t iBufSize, const unsigned char* pSrcData, size_t iSrcCount);
-json::JSON EncodeDWORDArray(DWORD* dwArray, size_t iCount, BOOL bBigEndian);
-void DecodeDWORDArray(DWORD* dwArray, json::JSON jsonArray, size_t iCount, BOOL bBigEndian);
+HOOKEXT_CPP std::string Base64Encode(const unsigned char* pSrcData, size_t iSrcCount);
+HOOKEXT_CPP size_t Base64Decode(BYTE* pBuffer, size_t iBufSize, const unsigned char* pSrcData, size_t iSrcCount);
+HOOKEXT_CPP json::JSON EncodeDWORDArray(DWORD* dwArray, size_t iCount, BOOL bBigEndian);
+HOOKEXT_CPP void DecodeDWORDArray(DWORD* dwArray, json::JSON jsonArray, size_t iCount, BOOL bBigEndian);
 
 // Globals etc.
 
