@@ -160,12 +160,14 @@ extern "C" int __stdcall Hook_LoadStringA(HINSTANCE hInstance, UINT uID, LPSTR l
 	return LoadStringA(hInstance, uID, lpBuffer, cchBufferMax);
 }
 
+#pragma warning(disable : 6387)
 // Hook LoadMenuA so we can insert our own menu items.
 extern "C" HMENU __stdcall Hook_LoadMenuA(HINSTANCE hInstance, LPCSTR lpMenuName) {
 	if ((DWORD)lpMenuName == 3 && hGameMenu)
 		return hGameMenu;
 	return LoadMenuA(hInstance, lpMenuName);
 }
+#pragma warning(default : 6387)
 
 // Make sure our own menu items get enabled instead of disabled
 extern "C" BOOL __stdcall Hook_EnableMenuItem(HMENU hMenu, UINT uIDEnableItem, UINT uEnable) {
@@ -246,6 +248,43 @@ extern "C" void __stdcall Hook_ApparentExit(void) {
 	*((DWORD *)pThis + 63) = dwOldVal2;
 }
 
+std::vector<hook_function_t> stHooks_Hook_GameDoIdleUpkeep_Before;
+std::vector<hook_function_t> stHooks_Hook_GameDoIdleUpkeep_After;
+
+extern "C" DWORD __stdcall Hook_GameDoIdleUpkeep(void) {
+	DWORD pThis;
+	__asm mov [pThis], ecx
+	for (const auto& hook : stHooks_Hook_GameDoIdleUpkeep_Before) {
+		if (hook.iType == HOOKFN_TYPE_NATIVE) {
+			void (*fnHook)(void*) = (void(*)(void*))hook.pFunction;
+			fnHook((void*)pThis);
+		}
+	}
+
+	__asm {
+		mov ecx, [pThis]
+		mov edi, 0x405AB0
+		call edi
+	}
+
+	for (const auto& hook : stHooks_Hook_GameDoIdleUpkeep_After) {
+		if (hook.iType == HOOKFN_TYPE_NATIVE) {
+			void (*fnHook)(void*) = (void(*)(void*))hook.pFunction;
+			fnHook((void*)pThis);
+		}
+	}
+}
+
+// Fix up a specific setting of the GameDoIdleUpkeep state
+void __declspec(naked) Hook_4062AD(void) {
+	__asm {
+		mov dword ptr [ecx+0x14C], 1
+		mov dword ptr [edi], 3
+		push 0x4062BD
+		retn
+	}
+}
+
 std::vector<hook_function_t> stHooks_Hook_OnNewCity_Before;
 
 static BOOL CALLBACK Hook_NewCityDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -262,9 +301,11 @@ static BOOL CALLBACK Hook_NewCityDialogProc(HWND hwndDlg, UINT message, WPARAM w
 		strcpy_s(dwMapXLAB[0]->szLabel, 24, szTempMayorName);
 
 		// XXX - this should probably be moved to a separate proper hook into the game itself
-		for (auto hook : stHooks_Hook_OnNewCity_Before) {
-			void (*fnHook)(void) = (void(*)(void))hook.pFunction;
-			fnHook();
+		for (const auto& hook : stHooks_Hook_OnNewCity_Before) {
+			if (hook.iType == HOOKFN_TYPE_NATIVE) {
+				void (*fnHook)(void) = (void(*)(void))hook.pFunction;
+				fnHook();
+			}
 		}
 		break;
 	}
@@ -272,6 +313,7 @@ static BOOL CALLBACK Hook_NewCityDialogProc(HWND hwndDlg, UINT message, WPARAM w
 	return lpNewCityAfxProc(hwndDlg, message, wParam, lParam);
 }
 
+#pragma warning(disable : 6387)
 // Load our own version of the main menu and the New City dialog when called
 extern "C" INT_PTR __stdcall Hook_DialogBoxParamA(HINSTANCE hInstance, LPCSTR lpTemplateName, HWND hWndParent, DLGPROC lpDialogFunc, LPARAM dwInitParam) {
 	switch ((DWORD)lpTemplateName) {
@@ -288,6 +330,7 @@ extern "C" INT_PTR __stdcall Hook_DialogBoxParamA(HINSTANCE hInstance, LPCSTR lp
 		return DialogBoxParamA(hInstance, lpTemplateName, hWndParent, lpDialogFunc, dwInitParam);
 	}
 }
+#pragma warning(default : 6387)
 
 // Fix rail and highway border connections not loading properly
 extern "C" void __stdcall Hook_LoadNeighborConnections1500(void) {
@@ -492,9 +535,11 @@ std::vector<hook_function_t> stHooks_Hook_SimulationProcessTickDaySwitch_Before;
 extern "C" void _declspec(naked) Hook_SimulationProcessTickDaySwitch(void) {
 	__asm push edx
 
-	for (auto hook : stHooks_Hook_SimulationProcessTickDaySwitch_Before) {
-		void (*fnHook)(void) = (void(*)(void))hook.pFunction;
-		fnHook();
+	for (const auto& hook : stHooks_Hook_SimulationProcessTickDaySwitch_Before) {
+		if (hook.iType == HOOKFN_TYPE_NATIVE) {
+			void (*fnHook)(void) = (void(*)(void))hook.pFunction;
+			fnHook();
+		}
 	}
 
 	Game_RefreshTitleBar(pCDocumentMainWindow);
@@ -503,7 +548,7 @@ extern "C" void _declspec(naked) Hook_SimulationProcessTickDaySwitch(void) {
 		POINT pt;
 		Game_CDocument_UpdateAllViews(pCDocumentMainWindow, NULL, 2, NULL);
 		GetCursorPos(&pt);
-		if (wCityMode && wCurrentCityToolGroup != TOOL_GROUP_CENTERINGTOOL && Game_GetTileCoordsFromScreenCoords(pt.x, pt.y) < 0x8000) {
+		if (wCityMode && wCurrentCityToolGroup != TOOL_GROUP_CENTERINGTOOL && Game_GetTileCoordsFromScreenCoords((__int16)pt.x, (__int16)pt.y) < 0x8000) {
 			Game_DrawSquareHighlight(*(WORD*)0x4CDB68, *(WORD*)0x4CDB70, *(WORD*)0x4CDB6C, *(WORD*)0x4CDB74);
 			*(WORD*)0x4EA7F0 = 1;		// TODO - figure out exactly what this should be called
 			RedrawWindow(GameGetRootWindowHandle(), NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
@@ -527,9 +572,11 @@ def:
 std::vector<hook_function_t> stHooks_Hook_SimulationProcessTickDaySwitch_After;
 
 extern "C" void _declspec(naked) Hook_SimulationProcessTickDaySwitch_After(void) {
-	for (auto hook : stHooks_Hook_SimulationProcessTickDaySwitch_After) {
-		void (*fnHook)(void) = (void(*)(void))hook.pFunction;
-		fnHook();
+	for (const auto& hook : stHooks_Hook_SimulationProcessTickDaySwitch_After) {
+		if (hook.iType == HOOKFN_TYPE_NATIVE) {
+			void (*fnHook)(void) = (void(*)(void))hook.pFunction;
+			fnHook();
+		}
 	}
 
 	// Original cleanup from 0x413ABF
@@ -576,7 +623,7 @@ extern "C" int __stdcall Hook_AddAllInventions(void) {
 extern "C" int __stdcall Hook_CSimcityView_WM_MBUTTONDOWN(WPARAM wMouseKeys, POINT pt) {
 	__int16 wTileCoords = 0;
 	BYTE bTileX = 0, bTileY = 0;
-	wTileCoords = Game_GetTileCoordsFromScreenCoords(pt.x, pt.y);
+	wTileCoords = Game_GetTileCoordsFromScreenCoords((__int16)pt.x, (__int16)pt.y);
 	bTileX = LOBYTE(wTileCoords);
 	bTileY = HIBYTE(wTileCoords);
 
@@ -632,9 +679,9 @@ extern "C" __int16 __stdcall Hook_CSimcityView_WM_LBUTTONDOWN(WPARAM iMouseKeys,
 				else if (PtInRect((const RECT *)(pThis + 104), pt))
 					P_LOWORD(ret) = Game_CSimCityView_OnVScroll(pThis, SB_LINEUP, 0, iYVar);
 				else if (PtInRect((const RECT *)(pThis + 136), pt))
-					P_LOWORD(ret) = Game_CSimCityView_OnVScroll(pThis, SB_THUMBTRACK, pt.y, iYVar);
+					P_LOWORD(ret) = Game_CSimCityView_OnVScroll(pThis, SB_THUMBTRACK, (__int16)pt.y, iYVar);
 				else {
-					if (*(DWORD *)(pThis + 140) >= pt.y)
+					if (*(DWORD *)(pThis + 140) >= (ULONG)pt.y)
 						P_LOWORD(ret) = Game_CSimCityView_OnVScroll(pThis, SB_PAGEUP, 0, iYVar);
 					else
 						P_LOWORD(ret) = Game_CSimCityView_OnVScroll(pThis, SB_PAGEDOWN, 0, iYVar);
@@ -645,15 +692,15 @@ extern "C" __int16 __stdcall Hook_CSimcityView_WM_LBUTTONDOWN(WPARAM iMouseKeys,
 				if (!ret) {
 					hWnd = SetCapture(*(HWND *)(pThis + 28));
 					Game_CWnd_FromHandle(hWnd);
-					P_LOWORD(ret) = Game_GetTileCoordsFromScreenCoords(pt.x, pt.y);
+					P_LOWORD(ret) = Game_GetTileCoordsFromScreenCoords((__int16)pt.x, (__int16)pt.y);
 					wCurrentTileCoordinates = ret;
 					if ((__int16)ret >= 0) {
 						wTileCoordinateX = (uint8_t)ret;
 						wPreviousTileCoordinateX = (uint8_t)ret;
 						wTileCoordinateY = wCurrentTileCoordinates >> 8;
 						wPreviousTileCoordinateY = wCurrentTileCoordinates >> 8;
-						wGameScreenAreaX = pt.x;
-						wGameScreenAreaY = pt.y;
+						wGameScreenAreaX = (WORD)pt.x;
+						wGameScreenAreaY = (WORD)pt.y;
 						*(DWORD *)(pThis + 252) = 1;
 						*(DWORD *)(pThis + 248) = 1;
 						if (wCityMode)
@@ -677,11 +724,11 @@ extern "C" __int16 __stdcall Hook_CSimcityView_WM_MOUSEMOVE(WPARAM iMouseKeys, P
 	int iTileCoords;
 	int iThisSomething;
 
-	P_LOWORD(iTileCoords) = pt.x;
+	P_LOWORD(iTileCoords) = (WORD)pt.x;
 	iThisSomething = *(DWORD *)(pThis + 252);
 	*(struct tagPOINT *)(pThis + 260) = pt; // Placement position.
 	if (iThisSomething) {
-		P_LOWORD(iTileCoords) = Game_GetTileCoordsFromScreenCoords(pt.x, pt.y);
+		P_LOWORD(iTileCoords) = Game_GetTileCoordsFromScreenCoords((__int16)pt.x, (__int16)pt.y);
 		wCurrentTileCoordinates = iTileCoords;
 		if ((__int16)iTileCoords >= 0) {
 			wTileCoordinateX = (unsigned __int8)iTileCoords;
@@ -707,8 +754,8 @@ extern "C" __int16 __stdcall Hook_CSimcityView_WM_MOUSEMOVE(WPARAM iMouseKeys, P
 					P_LOWORD(iTileCoords) = wTileCoordinateX;
 					wPreviousTileCoordinateX = wTileCoordinateX;
 					wPreviousTileCoordinateY = wTileCoordinateY;
-					wGameScreenAreaX = pt.x;
-					wGameScreenAreaY = pt.y;
+					wGameScreenAreaX = (WORD)pt.x;
+					wGameScreenAreaY = (WORD)pt.y;
 				}
 			}
 		}
@@ -747,7 +794,7 @@ extern "C" __int16 __cdecl Hook_MapToolMenuAction(int iMouseKeys, POINT pt) {
 	if (iCurrToolGroupA != MAPTOOL_GROUP_CENTERINGTOOL)
 		pThis[62] = 0;
 	do {
-		P_LOWORD(ret) = Game_GetTileCoordsFromScreenCoords(pt.x, pt.y);
+		P_LOWORD(ret) = Game_GetTileCoordsFromScreenCoords((__int16)pt.x, (__int16)pt.y);
 		if ((__int16)ret < 0)
 			break;
 		iTileTargetX = ret & 0x7F;
@@ -771,7 +818,7 @@ extern "C" __int16 __cdecl Hook_MapToolMenuAction(int iMouseKeys, POINT pt) {
 				P_LOWORD(ret) = Game_MapToolLowerTerrain(iTileTargetX, iTileTargetY);
 				break;
 			case MAPTOOL_GROUP_STRETCHTERRAIN: // Stretch Terrain (Drag vertically)
-				P_LOWORD(ret) = Game_MapToolStretchTerrain(iTileTargetX, iTileTargetY, pt.y);
+				P_LOWORD(ret) = Game_MapToolStretchTerrain(iTileTargetX, iTileTargetY, (__int16)pt.y);
 				break;
 			case MAPTOOL_GROUP_LEVELTERRAIN: // Level Terrain
 				P_LOWORD(ret) = Game_MapToolLevelTerrain(iTileTargetX, iTileTargetY);
@@ -870,6 +917,18 @@ void InstallMiscHooks(void) {
 	// Hook what appears to be the exit function
 	VirtualProtect((LPVOID)0x401753, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
 	NEWJMP((LPVOID)0x401753, Hook_ApparentExit);
+
+	// Hook GameDoIdleUpkeep
+	VirtualProtect((LPVOID)0x402A3B, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
+	NEWJMP((LPVOID)0x402A3B, Hook_GameDoIdleUpkeep);
+
+	// Fix the Maxis Presents logo not being shown
+	VirtualProtect((LPVOID)0x4062B9, 4, PAGE_EXECUTE_READWRITE, &dwDummy);
+	*(DWORD*)0x4062B9 = 1;
+	VirtualProtect((LPVOID)0x4062AD, 12, PAGE_EXECUTE_READWRITE, &dwDummy);
+	NEWJMP((LPVOID)0x4062AD, Hook_4062AD);
+	VirtualProtect((LPVOID)0x4E6130, 12, PAGE_EXECUTE_READWRITE, &dwDummy);
+	memcpy_s((LPVOID)0x4E6130, 12, "presnts.bmp", 12);
 
 	// Fix power and water grid updates slowing down after the population hits 50,000
 	VirtualProtect((LPVOID)0x440943, 4, PAGE_EXECUTE_READWRITE, &dwDummy);

@@ -234,6 +234,11 @@ BOOL ConsoleCmdShowMemory(const char* szCommand, const char* szArguments) {
 	int iRange = 16;
 	sscanf_s(szArguments + 7, "%X %s %i", &dwAddress, szOperandSize, sizeof(szOperandSize), &iRange);
 
+	if (!dwAddress) {
+		ConsoleLog(LOG_ERROR, "CORE: Segmentation fault caught. Don't do that again.\n");
+		return TRUE;
+	}
+
 	__try {
 		if (!*szOperandSize || !strcmp(szOperandSize, "dword"))
 			printf("0x%08X: (dword) 0x%08X\n", dwAddress, *(DWORD*)dwAddress);
@@ -504,7 +509,7 @@ BOOL ConsoleCmdShowTile(const char* szCommand, const char* szArguments) {
 			"Tile (%i, %i):\n"
 			"  iTileID: %s (%i / 0x%02X)\n"
 			"  Zone:    %s\n"
-			"  XBIT:    0x%02X (%s)\n", iTileX, iTileY, szTileNames[iTileID], iTileID, iTileID, GetZoneName(dwMapXZON[iTileX]->b[iTileY].iZoneType), dwMapXBIT[iTileX]->b[iTileY], szXBITFormatted);
+			"  XBIT:    0x%02X (%s)\n", iTileX, iTileY, szTileNames[iTileID], iTileID, iTileID, GetZoneName(dwMapXZON[iTileX]->b[iTileY].iZoneType), *(BYTE*)&dwMapXBIT[iTileX]->b[iTileY], szXBITFormatted);
 		return TRUE;
 	}
 
