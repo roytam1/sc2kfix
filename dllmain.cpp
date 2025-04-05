@@ -80,6 +80,7 @@ BYTE bAnimationPatch1995[30] = {
 };
 
 typedef HWND (WINAPI *PFN_GETCONSOLEWINDOW)();
+typedef BOOL (WINAPI *PFN_INITCOMMONCONTROLSEX)(const INITCOMMONCONTROLSEX *picce);
 static PFN_GETCONSOLEWINDOW pfnGetConsoleWindow = nullptr;
 HWND WINAPI
 _CompatGetConsoleWindow()
@@ -287,8 +288,16 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		}
 
 		// Ensure that the common controls library is loaded
-		InitCommonControlsEx(&icc);
+		{
+        PFN_INITCOMMONCONTROLSEX pfnInitCommonControlsEx = nullptr;
 
+        HMODULE hComCtl32 = GetModuleHandleW(L"comctl32");
+        pfnInitCommonControlsEx = reinterpret_cast<PFN_INITCOMMONCONTROLSEX>(GetProcAddress(hComCtl32, "InitCommonControlsEx"));
+        if (pfnInitCommonControlsEx)
+            pfnInitCommonControlsEx(&icc);
+		else
+            InitCommonControls();
+		}
 		// Open a log file. If it fails, we handle that safely elsewhere
 		// AF - Relocated so it will record any messages that occur
 		//      prior to the console itself being enabled.
