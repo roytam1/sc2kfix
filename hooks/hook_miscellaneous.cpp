@@ -148,6 +148,16 @@ extern "C" int __stdcall Hook_LoadStringA(HINSTANCE hInstance, UINT uID, LPSTR l
 				"Launch Arcology"))
 				return strlen(lpBuffer);
 			break;
+		case 4002:
+			if (!strcpy_s(lpBuffer, cchBufferMax,
+				"SimCity 2000 City (*.SC2)|*.SC2|SimCity Classic City (*.CTY)|*.CTY||"))
+				return strlen(lpBuffer);
+			break;
+		case 4004:
+			if (!strcpy_s(lpBuffer, cchBufferMax,
+				"SimCity 2000 Tilesets (*.mif)|*.mif||"))
+				return strlen(lpBuffer);
+			break;
 		case 32921:
 			if (!strcpy_s(lpBuffer, cchBufferMax,
 				"Saves city every 5 years"))
@@ -968,6 +978,9 @@ void InstallMiscHooks(void) {
 	VirtualProtect((LPVOID)0x434BEA, 6, PAGE_EXECUTE_READWRITE, &dwDummy);
 	NEWCALL((LPVOID)0x434BEA, Hook_LoadNeighborConnections1500);
 	*(BYTE*)0x434BEF = 0x90;
+
+	// Install hooks for the SC2X save format
+	InstallSaveHooks();
 
 	// Hook into what appears to be one of the item placement checking functions
 	VirtualProtect((LPVOID)0x4027F2, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
