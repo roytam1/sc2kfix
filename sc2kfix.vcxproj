@@ -58,6 +58,7 @@
       <DataExecutionPrevention>false</DataExecutionPrevention>
       <AdditionalDependencies>EnlyzeWinCompatLib.lib;"comctl32.lib";"shlwapi.lib";"winmm.lib";"wininet.lib";"dbghelp.lib";psapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+      <ForceFileOutput>MultiplyDefinedSymbolOnly</ForceFileOutput>
     </Link>
     <ResourceCompile>
       <AdditionalIncludeDirectories>
@@ -74,6 +75,7 @@
     <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="hooks\hook_animation.cpp" />
     <ClCompile Include="modules\console.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="hooks\hook_mciSendCommand.cpp" />
