@@ -270,14 +270,17 @@ extern "C" void __stdcall Hook_ApparentExit(void) {
 std::vector<hook_function_t> stHooks_Hook_GameDoIdleUpkeep_Before;
 std::vector<hook_function_t> stHooks_Hook_GameDoIdleUpkeep_After;
 
-extern "C" DWORD __stdcall Hook_GameDoIdleUpkeep(void) {
+extern "C" void __stdcall Hook_GameDoIdleUpkeep(void) {
 	DWORD pThis;
 	__asm mov [pThis], ecx
 	for (const auto& hook : stHooks_Hook_GameDoIdleUpkeep_Before) {
+		bHookStopProcessing = FALSE;
 		if (hook.iType == HOOKFN_TYPE_NATIVE) {
 			void (*fnHook)(void*) = (void(*)(void*))hook.pFunction;
 			fnHook((void*)pThis);
 		}
+		if (bHookStopProcessing)
+			goto BAIL;
 	}
 
 	__asm {
@@ -287,11 +290,17 @@ extern "C" DWORD __stdcall Hook_GameDoIdleUpkeep(void) {
 	}
 
 	for (const auto& hook : stHooks_Hook_GameDoIdleUpkeep_After) {
+		bHookStopProcessing = FALSE;
 		if (hook.iType == HOOKFN_TYPE_NATIVE) {
 			void (*fnHook)(void*) = (void(*)(void*))hook.pFunction;
 			fnHook((void*)pThis);
 		}
+		if (bHookStopProcessing)
+			goto BAIL;
 	}
+
+BAIL:
+	return;
 }
 
 // Fix up a specific setting of the GameDoIdleUpkeep state
@@ -321,6 +330,7 @@ static BOOL CALLBACK Hook_NewCityDialogProc(HWND hwndDlg, UINT message, WPARAM w
 
 		// XXX - this should probably be moved to a separate proper hook into the game itself
 		for (const auto& hook : stHooks_Hook_OnNewCity_Before) {
+			bHookStopProcessing = FALSE;
 			if (hook.iType == HOOKFN_TYPE_NATIVE) {
 				void (*fnHook)(void) = (void(*)(void))hook.pFunction;
 				fnHook();
@@ -428,9 +438,12 @@ extern "C" int __cdecl Hook_ItemPlacementCheck(unsigned __int16 m_x, int m_y, __
 			if (iBuilding == TILE_SMALLPARK) {
 				return 0;
 			}
-			//if (dwMapXZON[iX[0]]->b[iY[0]].iZoneType == ZONE_MILITARY) {
-			//	return 0; // This is where it stops during the military zone checking process.
-			//}
+			if (dwMapXZON[iX[0]]->b[iY[0]].iZoneType == ZONE_MILITARY) {
+				if (iBuilding == TILE_INFRASTRUCTURE_RUNWAYCROSS ||
+					iBuilding == TILE_ROAD_LR ||
+					iBuilding == TILE_ROAD_TB)
+					return 0;
+			}
 			if (iTileID == TILE_INFRASTRUCTURE_MARINA) {
 				if ((unsigned __int16)iX[0] < 0x80u &&
 					(unsigned __int16)iY[0] < 0x80u &&
@@ -506,25 +519,25 @@ GOFORWARD:
 			if (iArea) {
 				if (x < 0x80u && (unsigned __int16)y < 0x80u) {
 					pZone = (BYTE *)&dwMapXZON[x]->b[y];
-					*pZone = P_LOBYTE(wSomePositionalAngleOne[4 * wViewRotation]) | *pZone & 0xF;
+					*pZone = LOBYTE(wSomePositionalAngleOne[4 * wViewRotation]) | *pZone & 0xF;
 				}
 				iSection[0] = iArea + x;
 				if ((__int16)(iArea + x) > -1 && iSection[0] < 128 && (unsigned __int16)y < 0x80u) {
 					pZone = (BYTE *)&dwMapXZON[iSection[0]]->b[y];
-					*pZone = P_LOBYTE(wSomePositionalAngleTwo[4 * wViewRotation]) | *pZone & 0xF;
+					*pZone = LOBYTE(wSomePositionalAngleTwo[4 * wViewRotation]) | *pZone & 0xF;
 				}
 				if ((unsigned __int16)iSection[0] < 0x80u) {
 					iSection[1] = y + iArea;
 					if ((__int16)(y + iArea) > -1 && iSection[1] < 128) {
 						pZone = (BYTE *)&dwMapXZON[iSection[0]]->b[iSection[1]];
-						*pZone = P_LOBYTE(wSomePositionalAngleThree[4 * wViewRotation]) | *pZone & 0xF;
+						*pZone = LOBYTE(wSomePositionalAngleThree[4 * wViewRotation]) | *pZone & 0xF;
 					}
 				}
 				if (x < 0x80u) {
 					iSection[2] = iArea + y;
 					if ((__int16)(iArea + y) > -1 && iSection[2] < 128) {
 						pZone = (BYTE *)&dwMapXZON[x]->b[iSection[2]];
-						*pZone = P_LOBYTE(wSomePositionalAngleFour[4 * wViewRotation]) | *pZone & 0xF;
+						*pZone = LOBYTE(wSomePositionalAngleFour[4 * wViewRotation]) | *pZone & 0xF;
 					}
 				}
 			}
@@ -555,10 +568,13 @@ extern "C" void _declspec(naked) Hook_SimulationProcessTickDaySwitch(void) {
 	__asm push edx
 
 	for (const auto& hook : stHooks_Hook_SimulationProcessTickDaySwitch_Before) {
+		bHookStopProcessing = FALSE;
 		if (hook.iType == HOOKFN_TYPE_NATIVE) {
 			void (*fnHook)(void) = (void(*)(void))hook.pFunction;
 			fnHook();
 		}
+		if (bHookStopProcessing)
+			__asm jmp def;
 	}
 
 	Game_RefreshTitleBar(pCDocumentMainWindow);
@@ -568,8 +584,8 @@ extern "C" void _declspec(naked) Hook_SimulationProcessTickDaySwitch(void) {
 		Game_CDocument_UpdateAllViews(pCDocumentMainWindow, NULL, 2, NULL);
 		GetCursorPos(&pt);
 		if (wCityMode && wCurrentCityToolGroup != TOOL_GROUP_CENTERINGTOOL && Game_GetTileCoordsFromScreenCoords((__int16)pt.x, (__int16)pt.y) < 0x8000) {
-			Game_DrawSquareHighlight(*(WORD*)0x4CDB68, *(WORD*)0x4CDB70, *(WORD*)0x4CDB6C, *(WORD*)0x4CDB74);
-			*(WORD*)0x4EA7F0 = 1;		// TODO - figure out exactly what this should be called
+			Game_DrawSquareHighlight(wHighlightedTileX1, wHighlightedTileY1, wHighlightedTileX2, wHighlightedTileY2);
+			wTileHighlightActive = 1;
 			RedrawWindow(GameGetRootWindowHandle(), NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
 		}
 	}
@@ -592,12 +608,16 @@ std::vector<hook_function_t> stHooks_Hook_SimulationProcessTickDaySwitch_After;
 
 extern "C" void _declspec(naked) Hook_SimulationProcessTickDaySwitch_After(void) {
 	for (const auto& hook : stHooks_Hook_SimulationProcessTickDaySwitch_After) {
+		bHookStopProcessing = FALSE;
 		if (hook.iType == HOOKFN_TYPE_NATIVE) {
 			void (*fnHook)(void) = (void(*)(void))hook.pFunction;
 			fnHook();
 		}
+		if (bHookStopProcessing)
+			goto BAIL;
 	}
 
+BAIL:
 	// Original cleanup from 0x413ABF
 	__asm {
 		mov eax, [ebp-0x0C]
