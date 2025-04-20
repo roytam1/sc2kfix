@@ -1435,13 +1435,8 @@ void InstallMiscHooks(void) {
 			ConsoleLog(LOG_DEBUG, "MISC: Game InsertMenuA #2 failed, error = 0x%08X.\n", GetLastError());
 			goto skipgamemenu;
 		}
-		if (!InsertMenu(hOptionsPopup, -1, MF_BYPOSITION|MF_STRING, IDM_GAME_OPTIONS_MODCONFIG, "Mod &Configuration...") && mischook_debug & MISCHOOK_DEBUG_MENU) {
-			ConsoleLog(LOG_DEBUG, "MISC: Game InsertMenuA #3 failed, error = 0x%08X.\n", GetLastError());
-			goto skipgamemenu;
-		}
 
 		EnableMenuItem(hOptionsPopup, 5, MF_BYPOSITION | MF_ENABLED);
-		EnableMenuItem(hOptionsPopup, 6, MF_BYPOSITION | MF_ENABLED);
 
 		afxMessageMapEntry[0] = {
 			WM_COMMAND,
