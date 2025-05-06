@@ -243,7 +243,7 @@ void ConsoleLog(int iLogLevel, const char* fmt, ...) {
 
 int GetTileID(int iTileX, int iTileY) {
 	if (iTileX >= 0 && iTileX < 128 && iTileY >= 0 && iTileY < 128)
-		return dwMapXBLD[iTileX]->iTileID[iTileY];
+		return dwMapXBLD[iTileX][iTileY].iTileID;
 	else
 		return -1;
 }
