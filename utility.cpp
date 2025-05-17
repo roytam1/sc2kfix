@@ -242,7 +242,7 @@ void ConsoleLog(int iLogLevel, const char* fmt, ...) {
 }
 
 int GetTileID(int iTileX, int iTileY) {
-	if (iTileX >= 0 && iTileX < 128 && iTileY >= 0 && iTileY < 128)
+	if (iTileX >= 0 && iTileX < GAME_MAP_SIZE && iTileY >= 0 && iTileY < GAME_MAP_SIZE)
 		return dwMapXBLD[iTileX][iTileY].iTileID;
 	else
 		return -1;

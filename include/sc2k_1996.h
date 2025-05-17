@@ -52,6 +52,8 @@
 #define CORNER_TRIGHT 0x8
 #define CORNER_ALL    (CORNER_BLEFT|CORNER_BRIGHT|CORNER_TLEFT|CORNER_TRIGHT)
 
+#define GAME_MAP_SIZE 128
+
 // Enums
 
 // Disaster IDs
@@ -957,7 +959,7 @@ GAMECALL(0x402B3F, __int16, __stdcall, RandomWordLFSRMod128, int seed)
 // Pointers
 
 GAMEOFF_PTR(void, pCWinAppThis,				0x4C7010)
-GAMEOFF(void*,	pCWndRootWindow,			0x4C702C)
+GAMEOFF(void*,	pCWndRootWindow,			0x4C702C)		// CMainFrame
 GAMEOFF(BOOL,	bPriscillaActivated,		0x4C7104)
 GAMEOFF(DWORD*, dwAudioHandle,				0x4C7158)		// Various checks have pointed towards audio (sound and/or midi - perhaps stoppage given some context elsewhere)
 GAMEOFF(BOOL,	bOptionsMusicEnabled,		0x4C71F0)
