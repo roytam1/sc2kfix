@@ -39,6 +39,7 @@ const char* szSC2KFixBuildInfo = __DATE__ " " __TIME__;
 FILE* fdLog = NULL;
 BOOL bInSCURK = FALSE;
 BOOL bUseAdvancedQuery = FALSE;
+int iForcedBits = 0;
 
 
 //std::random_device rdRandomDevice;
@@ -110,25 +111,63 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		ALLEXPORTS_PASSTHROUGH(GETPROC);
 
 		// Get our command line. WARNING: This uses WIDE STRINGS.
+		int iSetBitMode;
+		BOOL bSubArg;
+		int iLastArgPos;
+		int iArg;
+
+		iSetBitMode = 0;
+		bSubArg = FALSE;
+		iLastArgPos = -1;
+		iArg = 0;
+
 		argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 		if (argv) {
 			for (int i = 0; i < argc; i++) {
-				if (!lstrcmpiW(argv[i], L"-console"))
-					bConsoleEnabled = TRUE;
-				if (!lstrcmpiW(argv[i], L"-defaults"))
-					bSkipLoadSettings = TRUE;
-				if (!lstrcmpiW(argv[i], L"-skipintro"))
-					bSkipIntro = TRUE;
-				if (!lstrcmpiW(argv[i], L"-advquery"))
-					bUseAdvancedQuery = TRUE;
-				if (!lstrcmpiW(argv[i], L"-debugall")) {
-					mci_debug = DEBUG_FLAGS_EVERYTHING;
-					military_debug = DEBUG_FLAGS_EVERYTHING;
-					mischook_debug = DEBUG_FLAGS_EVERYTHING;
-					mus_debug = DEBUG_FLAGS_EVERYTHING;
-					snd_debug = DEBUG_FLAGS_EVERYTHING;
-					timer_debug = DEBUG_FLAGS_EVERYTHING;
-					updatenotifier_debug = DEBUG_FLAGS_EVERYTHING;
+				if (!bSubArg) {
+					if (!lstrcmpiW(argv[i], L"-advquery"))
+						bUseAdvancedQuery = TRUE;
+					if (!lstrcmpiW(argv[i], L"-console"))
+						bConsoleEnabled = TRUE;
+					if (!lstrcmpiW(argv[i], L"-debugall")) {
+						mci_debug = DEBUG_FLAGS_EVERYTHING;
+						military_debug = DEBUG_FLAGS_EVERYTHING;
+						mischook_debug = DEBUG_FLAGS_EVERYTHING;
+						mus_debug = DEBUG_FLAGS_EVERYTHING;
+						snd_debug = DEBUG_FLAGS_EVERYTHING;
+						timer_debug = DEBUG_FLAGS_EVERYTHING;
+						updatenotifier_debug = DEBUG_FLAGS_EVERYTHING;
+					}
+					if (!lstrcmpiW(argv[i], L"-defaults"))
+						bSkipLoadSettings = TRUE;
+					if (!lstrcmpiW(argv[i], L"-skipintro"))
+						bSkipIntro = TRUE;
+					if (!lstrcmpiW(argv[i], L"-bitmode"))
+					{
+						if (!iSetBitMode) {
+							iForcedBits = 0;
+							iSetBitMode = 2;
+							bSubArg = TRUE;
+							iLastArgPos = i;
+						}
+					}
+				}
+				else {
+					if (i == iLastArgPos + 1) {
+						if (wcslen(argv[i]) > 0) {
+							if (iSetBitMode == 2) {
+								iArg = _wtoi(argv[i]);
+								if (iArg != 4 && iArg != 8) {
+									iSetBitMode = 0;
+								}
+								else {
+									iForcedBits = iArg;
+									iSetBitMode = 1; // Finished setting, any duplicate parameters will be ignored.
+								}
+							}
+						}
+					}
+					bSubArg = FALSE; // Unset sub-argument switch, this is limited to only one sub-arg at this time.
 				}
 			}
 		}
@@ -169,6 +208,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		// Force the console to be enabled if bSettingsAlwaysConsole is set
 		if (bSettingsAlwaysConsole)
 			bConsoleEnabled = true;
+
+		if (iForcedBits > 0)
+			ConsoleLog(LOG_INFO, "CORE: -bitmode passed, forcing %d-Bit mode.\n", iForcedBits);
 
 		// Force the console to be enabled if DEBUGALL is defined
 #ifdef DEBUGALL
