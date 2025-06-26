@@ -80,6 +80,23 @@
 #define DEBUG_FLAGS_NONE		0
 #define DEBUG_FLAGS_EVERYTHING	0xFFFFFFFF
 
+
+#define HICOLORCNT 256
+#define LOCOLORCNT 16
+
+typedef struct tagLOGPAL
+{
+	WORD wVersion;
+	WORD wNumPalEnts;
+	PALETTEENTRY pPalEnts[HICOLORCNT];
+} LOGPAL, *PLOGPAL;
+
+typedef struct testColStruct
+{
+	WORD wPos;
+	tagPALETTEENTRY pe;
+} colStruct;
+
 typedef struct {
 	UINT nMessage;
 	UINT nCode;
@@ -151,6 +168,10 @@ extern BOOL bSettingsUseStatusDialog;
 extern BOOL bSettingsTitleCalendar;
 extern BOOL bSettingsUseNewStrings;
 extern BOOL bSettingsAlwaysSkipIntro;
+
+// Command line globals
+
+extern int iForcedBits;
 
 // Path adjustment (from registry_pathing area)
 
