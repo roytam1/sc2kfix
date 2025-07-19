@@ -48,39 +48,6 @@ int iForcedBits = 0;
 // Statics
 static DWORD dwDummy;
 
-// TODO: Bring this bit of code up to standard with the rest of the project. It's literally the
-// oldest hook in sc2kfix and its the kind of quick-and-dirty thing I'd rather rewrite to be more
-// digestible. We can hook anything in the game, we don't need to jam hand-assembled code into
-// code segments anymore.
-// 
-// This code replaces the original stack cleanup and return after the engine
-// cycles the animation palette.
-// 
-// 6881000000      push dword 0x81              ; flags = RDW_INVALIDATE | RDW_ALLCHILDREN
-// 6A00            push 0                       ; hrgnUpdate = NULL
-// 6A00            push 0                       ; lprcUpdate = NULL
-// 8B0D2C704C00    mov ecx, [pCWndRootWindow]
-// 8B511C          mov edx, [ecx+0x1C]
-// 52              push edx                     ; hWnd
-// FF155CFD4E00    call [RedrawWindow]
-// 5D              pop ebp                      ; Clean up stack and return
-// 5F              pop edi
-// 5E              pop esi
-// 5B              pop ebx
-// C3              retn
-BYTE bAnimationPatch1996[30] = {
-	0x68, 0x81, 0x00, 0x00, 0x00, 0x6A, 0x00, 0x6A, 0x00, 0x8B, 0x0D, 0x2C,
-	0x70, 0x4C, 0x00, 0x8B, 0x51, 0x1C, 0x52, 0xFF, 0x15, 0x5C, 0xFD, 0x4E,
-	0x00, 0x5D, 0x5F, 0x5E, 0x5B, 0xC3
-};
-
-// Same as above, but with the offsets adjusted for the 1995 EXE
-BYTE bAnimationPatch1995[30] = {
-	0x68, 0x81, 0x00, 0x00, 0x00, 0x6A, 0x00, 0x6A, 0x00, 0x8B, 0x0D, 0x2C,
-	0x60, 0x4C, 0x00, 0x8B, 0x51, 0x1C, 0x52, 0xFF, 0x15, 0xE8, 0xEC, 0x4E,
-	0x00, 0x5D, 0x5F, 0x5E, 0x5B, 0xC3
-};
-
 typedef HWND (WINAPI *PFN_GETCONSOLEWINDOW)();
 typedef BOOL (WINAPI *PFN_INITCOMMONCONTROLSEX)(const INITCOMMONCONTROLSEX *picce);
 static PFN_GETCONSOLEWINDOW pfnGetConsoleWindow = nullptr;
@@ -311,7 +278,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		MyPathStripPathA(szModuleBaseName);
 		MyPathRemoveExtensionA(szModuleBaseName);
 		if (!(_stricmp(szModuleBaseName, "winscurk") == 0 ||
-			_stricmp(szModuleBaseName, "simcity") == 0)) {
+			_stricmp(szModuleBaseName, "simcity") == 0 ||
+			_stricmp(szModuleBaseName, "simdemo") == 0)) {
 			break;
 		}
 
@@ -413,14 +381,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		// HACK: there's probably a better way to do this
 		dwSC2KAppTimestamp = ((PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)hSC2KAppModule)->e_lfanew + (UINT_PTR)hSC2KAppModule))->FileHeader.TimeDateStamp;
 		switch (dwSC2KAppTimestamp) {
+		case 0x313E706E:
+			dwDetectedVersion = SC2KVERSION_1996;
+			break;
+
 		case 0x302FEA8A:
 			dwDetectedVersion = SC2KVERSION_1995;
 			ConsoleLog(LOG_NOTICE, "CORE: 1995 CD Collection version detected. Most features and gameplay fixes will not be available.\n");
 			ConsoleLog(LOG_NOTICE, "CORE: Please consider using the 1996 Special Edition for the fully restored SimCity 2000 experience.\n");
 			break;
 
-		case 0x313E706E:
-			dwDetectedVersion = SC2KVERSION_1996;
+		case 0x3103B687:
+			dwDetectedVersion = SC2KVERSION_DEMO;
+			ConsoleLog(LOG_NOTICE, "CORE: Interactive Demo version detected. Good luck!\n");
 			break;
 
 		default:
@@ -431,6 +404,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 			MessageBox(GetActiveWindow(), msg, "sc2kfix warning", MB_OK | MB_ICONWARNING);
 			ConsoleLog(LOG_WARNING, "CORE: SC2K version could not be detected (got timestamp 0x%08X). Game will probably crash.\n", dwSC2KAppTimestamp);
 		}
+
+		if (dwDetectedVersion == SC2KVERSION_DEMO)
+			gamePrimaryKey = "SimCity 2000 Win95 Demo";
+
 
 		// Registry check
 		int iInstallCheck;
@@ -454,76 +431,97 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		}
 
 		// Palette animation fix
-		LPVOID lpAnimationFix;
-		PBYTE lpAnimationFixSrc;
-		UINT uAnimationFixLength;
-		switch (dwDetectedVersion) {
-		case SC2KVERSION_1995:
-			lpAnimationFix = (LPVOID)0x00456B23;
-			lpAnimationFixSrc = bAnimationPatch1995;
-			uAnimationFixLength = 30;
-			break;
+		BOOL bCanFixAnimation;
 
-		case SC2KVERSION_1996:
-		default:
-			lpAnimationFix = (LPVOID)0x004571D3;
-			lpAnimationFixSrc = bAnimationPatch1996;
-			uAnimationFixLength = 30;
-		}
-		
-		VirtualProtect(lpAnimationFix, uAnimationFixLength, PAGE_EXECUTE_READWRITE, &dwDummy);
-		memcpy(lpAnimationFix, lpAnimationFixSrc, uAnimationFixLength);
-		ConsoleLog(LOG_INFO, "CORE: Patched palette animation fix.\n");
+		bCanFixAnimation = TRUE;
+		if (dwDetectedVersion == SC2KVERSION_1996)
+			InstallAnimationSimCity1996Hooks();
+		else if (dwDetectedVersion == SC2KVERSION_1995)
+			InstallAnimationSimCity1995Hooks();
+		else if (dwDetectedVersion == SC2KVERSION_DEMO)
+			InstallAnimationSimCityDemoHooks();
+		else
+			bCanFixAnimation = FALSE;
+
+		if (bCanFixAnimation)
+			ConsoleLog(LOG_INFO, "CORE: Patched palette animation fix.\n");
 
 		// Dialog crash fix - hat tip to Aleksander Krimsky (@alekasm on GitHub)
+		BOOL bCanFixDialogCrash;
 		LPVOID lpDialogFix1;
 		LPVOID lpDialogFix2;
+
+		lpDialogFix1 = NULL;
+		lpDialogFix2 = NULL;
 		switch (dwDetectedVersion) {
 		case SC2KVERSION_1995:
+			bCanFixDialogCrash = TRUE;
 			lpDialogFix1 = (LPVOID)0x0049EE93;
 			lpDialogFix2 = (LPVOID)0x0049EEF2;
 			break;
 
 		case SC2KVERSION_1996:
-		default:
+			bCanFixDialogCrash = TRUE;
 			lpDialogFix1 = (LPVOID)0x004A04FA;
 			lpDialogFix2 = (LPVOID)0x004A0559;
+			break;
+
+		default:
+			bCanFixDialogCrash = FALSE;
+			break;
 		}
 
-		VirtualProtect(lpDialogFix1, 1, PAGE_EXECUTE_READWRITE, &dwDummy);
-		*(LPBYTE)lpDialogFix1 = 0x20;
-		VirtualProtect(lpDialogFix2, 2, PAGE_EXECUTE_READWRITE, &dwDummy);
-		*(LPBYTE)lpDialogFix2 = 0xEB;
-		*(LPBYTE)((UINT_PTR)lpDialogFix2 + 1) = 0xEB;
-		ConsoleLog(LOG_INFO, "CORE: Patched dialog crash fix.\n");
+		if (bCanFixDialogCrash) {
+			VirtualProtect(lpDialogFix1, 1, PAGE_EXECUTE_READWRITE, &dwDummy);
+			*(LPBYTE)lpDialogFix1 = 0x20;
+			VirtualProtect(lpDialogFix2, 2, PAGE_EXECUTE_READWRITE, &dwDummy);
+			*(LPBYTE)lpDialogFix2 = 0xEB;
+			*(LPBYTE)((UINT_PTR)lpDialogFix2 + 1) = 0xEB;
+			ConsoleLog(LOG_INFO, "CORE: Patched dialog crash fix.\n");
+		}
 
 		// Remove palette warnings
+		BOOL bCanFixPaletteWarnings;
 		LPVOID lpWarningFix1;
 		LPVOID lpWarningFix2;
+
+		lpWarningFix1 = NULL;
+		lpWarningFix2 = NULL;
 		switch (dwDetectedVersion) {
 		case SC2KVERSION_1995:
+			bCanFixPaletteWarnings = TRUE;
 			lpWarningFix1 = (LPVOID)0x00408749;
 			lpWarningFix2 = (LPVOID)0x0040878E;
 			break;
 
 		case SC2KVERSION_1996:
-		default:
+			bCanFixPaletteWarnings = TRUE;
 			lpWarningFix1 = (LPVOID)0x00408A79;
 			lpWarningFix2 = (LPVOID)0x00408ABE;
+			break;
+
+		default:
+			bCanFixPaletteWarnings = FALSE;
+			break;
 		}
-		VirtualProtect(lpWarningFix1, 2, PAGE_EXECUTE_READWRITE, &dwDummy);
-		VirtualProtect(lpWarningFix2, 18, PAGE_EXECUTE_READWRITE, &dwDummy);
-		*(LPBYTE)lpWarningFix1 = 0x90;
-		*(LPBYTE)((UINT_PTR)lpWarningFix1 + 1) = 0x90;
-		memset((LPVOID)lpWarningFix2, 0x90, 18);   // nop nop nop nop nop
-		ConsoleLog(LOG_INFO, "CORE: Patched 8-bit colour warnings.\n");
+
+		if (bCanFixPaletteWarnings) {
+			VirtualProtect(lpWarningFix1, 2, PAGE_EXECUTE_READWRITE, &dwDummy);
+			VirtualProtect(lpWarningFix2, 18, PAGE_EXECUTE_READWRITE, &dwDummy);
+			*(LPBYTE)lpWarningFix1 = 0x90;
+			*(LPBYTE)((UINT_PTR)lpWarningFix1 + 1) = 0x90;
+			memset((LPVOID)lpWarningFix2, 0x90, 18);   // nop nop nop nop nop
+			ConsoleLog(LOG_INFO, "CORE: Patched 8-bit colour warnings.\n");
+		}
 
 		// Hooks we only want to inject on the 1996 Special Edition version
 		// and the registry hooks that are for the 1995 CD Collection version.
 		if (dwDetectedVersion == SC2KVERSION_1996)
-			InstallMiscHooks();
+			InstallMiscHooks_SC2K1996();
 		else if (dwDetectedVersion == SC2KVERSION_1995)
 			InstallRegistryPathingHooks_SC2K1995();
+		else if (dwDetectedVersion == SC2KVERSION_DEMO)
+			InstallMiscHooks_SC2KDemo();
 
 		// Start the console thread.
 		if (bConsoleEnabled) {

@@ -12,6 +12,7 @@
 
 #include <smk.h>
 #include <sc2k_1996.h>
+#include <sc2k_demo.h>
 #include <music.h>
 
 #if defined(_MSC_VER) && _MSC_VER < 1600
@@ -40,8 +41,9 @@
 // #define CONSOLE_ENABLED
 
 #define SC2KVERSION_UNKNOWN 0
-#define SC2KVERSION_1995    1
-#define SC2KVERSION_1996    2
+#define SC2KVERSION_1996    1
+#define SC2KVERSION_1995    2
+#define SC2KVERSION_DEMO    3
 
 #define SC2KFIX_VERSION		"0.10-dev"
 #define SC2KFIX_RELEASE_TAG	"r9a"
@@ -84,18 +86,21 @@
 #define HICOLORCNT 256
 #define LOCOLORCNT 16
 
-typedef struct tagLOGPAL
-{
+typedef struct tagLOGPAL {
 	WORD wVersion;
 	WORD wNumPalEnts;
 	PALETTEENTRY pPalEnts[HICOLORCNT];
 } LOGPAL, *PLOGPAL;
 
-typedef struct testColStruct
-{
+typedef struct testColStruct {
 	WORD wPos;
 	tagPALETTEENTRY pe;
 } colStruct;
+
+typedef struct COLORTABLE_STRUCT {
+	WORD Index;
+	DWORD rgb;
+} colTable;
 
 typedef struct {
 	UINT nMessage;
@@ -105,6 +110,54 @@ typedef struct {
 	UINT_PTR nSig;
 	void* pfn;
 } AFX_MSGMAP_ENTRY;
+
+class CMFC3XString {
+public:
+	LPTSTR m_pchData;
+	int m_nDataLength;
+	int m_nAllocLength;
+};
+
+class CSimString {
+public:
+	char *pStr;
+};
+
+typedef struct {
+	const char* szHookName;
+	int iHookPriority;
+} sc2kfix_mod_hook_t;
+
+typedef struct {
+	int iModInfoVersion;				// Mandatory
+
+	int iModVersionMajor;				// Mandatory
+	int iModVersionMinor;				// Mandatory
+	int iModVersionPatch;				// Mandatory
+	int iMinimumVersionMajor;			// Mandatory
+	int iMinimumVersionMinor;			// Mandatory
+	int iMinimumVersionPatch;			// Mandatory
+
+	const char* szModName;				// Mandatory
+	const char* szModShortName;			// Mandatory
+	const char* szModAuthor;			// Optional, but recommended
+	const char* szModDescription;		// Optional, but recommended
+
+	int iHookCount;						// Mandatory
+	sc2kfix_mod_hook_t* stHooks;		// Mandatory
+} sc2kfix_mod_info_t;
+
+enum {
+	HOOKFN_TYPE_NONE,
+	HOOKFN_TYPE_NATIVE,
+	HOOKFN_TYPE_KUROKO
+};
+
+typedef struct {
+	int iPriority;
+	int iType;
+	void* pFunction;
+} hook_function_t;
 
 typedef BOOL (*console_cmdproc_t)(const char* szCommand, const char* szArguments);
 
@@ -242,6 +295,9 @@ BOOL ConsoleCmdSet(const char* szCommand, const char* szArguments);
 BOOL ConsoleCmdSetDebug(const char* szCommand, const char* szArguments);
 BOOL ConsoleCmdSetTile(const char* szCommand, const char* szArguments);
 
+
+extern const char *gamePrimaryKey;
+
 extern BOOL bGameDead;
 extern HMODULE hRealWinMM;
 extern HMODULE hSC2KAppModule;
@@ -283,8 +339,12 @@ extern BOOL bUpdateAvailable;
 
 // Hooks to inject in dllmain.cpp
 
-void InstallMiscHooks(void);
-void UpdateMiscHooks(void);
+void InstallAnimationSimCity1996Hooks(void);
+void InstallAnimationSimCity1995Hooks(void);
+void InstallAnimationSimCityDemoHooks(void);
+void InstallMiscHooks_SC2K1996(void);
+void UpdateMiscHooks_SC2K1996(void);
+void InstallMiscHooks_SC2KDemo(void);
 void InstallQueryHooks(void);
 void InstallMilitaryHooks(void);
 extern "C" void __stdcall Hook_LoadSoundBuffer(int iSoundID, void* lpBuffer);
@@ -304,6 +364,7 @@ void ProposeMilitaryBaseNavalYard(void);
 // Registry hooks
 void InstallRegistryPathingHooks_SC2K1996(void);
 void InstallRegistryPathingHooks_SC2K1995(void);
+void InstallRegistryPathingHooks_SC2KDemo(void);
 void InstallRegistryPathingHooks_SCURK1996(void);
 
 // Debugging settings

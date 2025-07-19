@@ -127,8 +127,9 @@
 			/>
 			<Tool
 				Name="VCCLCompilerTool"
+				AdditionalOptions="/wd4311 /wd4312"
 				AdditionalIncludeDirectories="include"
-				PreprocessorDefinitions="WIN32;NDEBUG;_WINDOWS;_GUI"
+				PreprocessorDefinitions="WIN32;NDEBUG;_WINDOWS;_GUI;_CRT_SECURE_NO_WARNINGS"
 				RuntimeLibrary="0"
 				BufferSecurityCheck="false"
 				UsePrecompiledHeader="0"
@@ -214,7 +215,15 @@
 					>
 				</File>
 				<File
-					RelativePath=".\hooks\hook_miscellaneous.cpp"
+					RelativePath=".\hooks\hook_animation.cpp"
+					>
+				</File>
+				<File
+					RelativePath=".\hooks\hook_sc2kdemo_miscellaneous.cpp"
+					>
+				</File>
+				<File
+					RelativePath=".\hooks\hook_sc2k1996_miscellaneous.cpp"
 					>
 				</File>
 				<File
@@ -294,6 +303,10 @@
 			</File>
 			<File
 				RelativePath=".\include\sc2kfix.h"
+				>
+			</File>
+			<File
+				RelativePath=".\include\sc2k_demo.h"
 				>
 			</File>
 			<File
