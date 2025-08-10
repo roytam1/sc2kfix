@@ -78,7 +78,7 @@ typedef struct tagLOGPAL {
 // TODO: inline documentation
 typedef struct testColStruct {
 	WORD wPos;
-	tagPALETTEENTRY pe;
+	PALETTEENTRY pe;
 } colStruct;
 
 // TODO: inline documentation
