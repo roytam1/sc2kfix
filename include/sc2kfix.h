@@ -86,22 +86,26 @@
 #define HICOLORCNT 256
 #define LOCOLORCNT 16
 
+// TODO: inline documentation
 typedef struct tagLOGPAL {
 	WORD wVersion;
 	WORD wNumPalEnts;
 	PALETTEENTRY pPalEnts[HICOLORCNT];
 } LOGPAL, *PLOGPAL;
 
+// TODO: inline documentation
 typedef struct testColStruct {
 	WORD wPos;
-	tagPALETTEENTRY pe;
+	PALETTEENTRY pe;
 } colStruct;
 
+// TODO: inline documentation
 typedef struct COLORTABLE_STRUCT {
 	WORD Index;
 	DWORD rgb;
 } colTable;
 
+// Reimplementation of the MFC 3.x message map entry structure.
 typedef struct {
 	UINT nMessage;
 	UINT nCode;
@@ -111,6 +115,7 @@ typedef struct {
 	void* pfn;
 } AFX_MSGMAP_ENTRY;
 
+// Reimplementation of the CString class from MFC 3.x.
 class CMFC3XString {
 public:
 	LPTSTR m_pchData;
@@ -118,16 +123,21 @@ public:
 	int m_nAllocLength;
 };
 
+// Reimplementation of an abstracted C string (not to be confused with the MFC CString) used in
+// the original SimCity 2000 code.
 class CSimString {
 public:
 	char *pStr;
 };
 
+// Struct defining an injected hook from a loaded mod and its nested call priority.
 typedef struct {
 	const char* szHookName;
 	int iHookPriority;
 } sc2kfix_mod_hook_t;
 
+// Struct defining a mod in its entirety, including its version info, sc2kfix/OC2K version
+// requirements, basic descriptions, and what hooks it injects code into.
 typedef struct {
 	int iModInfoVersion;				// Mandatory
 
@@ -147,12 +157,14 @@ typedef struct {
 	sc2kfix_mod_hook_t* stHooks;		// Mandatory
 } sc2kfix_mod_info_t;
 
+// Enum for mod hook types
 enum {
 	HOOKFN_TYPE_NONE,
 	HOOKFN_TYPE_NATIVE,
 	HOOKFN_TYPE_KUROKO
 };
 
+// Function pointers (native and otherwise) for hooks
 typedef struct {
 	int iPriority;
 	int iType;
@@ -161,6 +173,7 @@ typedef struct {
 
 typedef BOOL (*console_cmdproc_t)(const char* szCommand, const char* szArguments);
 
+// Struct defining a core console command.
 typedef struct {
 	const char* szCommand;
 	console_cmdproc_t fpProc;
@@ -168,16 +181,23 @@ typedef struct {
 	const char* szDescription;
 } console_command_t;
 
+// Struct defining debugging information for sound buffers.
 typedef struct {
 	int iSoundID;
 	int iReloadCount;
 } soundbufferinfo_t;
 
+// Struct defining a sound to be replaced in hook_sndPlaySound.cpp. I genuinely don't have any
+// better way to describe this one.
 typedef struct {
 	BYTE* bBuffer;
 	DWORD nBufSize;
 } sound_replacement_t;
 
+// Enum for console command visibility in inline help. Documented commands always appear in inline
+// help, undocumented commands only appear if `set undocumented` has been activated. Commands
+// tagged as aliases never appear. Commands tagged as script-only return an error in interactive
+// mode but function in script mode.
 enum {
 	CONSOLE_COMMAND_DOCUMENTED = 0,
 	CONSOLE_COMMAND_UNDOCUMENTED,
@@ -185,6 +205,7 @@ enum {
 	CONSOLE_COMMAND_SCRIPTONLY
 };
 
+// Enum for logging functionality. Roughly equates to syslog levels (see RFC 5424).
 enum {
 	LOG_NONE = -1,
 	LOG_EMERGENCY,
@@ -212,6 +233,7 @@ extern BOOL bSettingsShuffleMusic;
 extern BOOL bSettingsUseMultithreadedMusic;
 extern BOOL bSettingsFrequentCityRefresh;
 extern BOOL bSettingsUseMP3Music;
+extern BOOL bSettingsAlwaysPlayMusic;
 
 extern BOOL bSettingsAlwaysConsole;
 extern BOOL bSettingsCheckForUpdates;
@@ -270,7 +292,9 @@ const char *GetIniPath();
 void LoadSettings(void);
 void SaveSettings(BOOL onload);
 void ShowSettingsDialog(void);
-HWND ShowStatusDialog(void);
+BOOL CanUseFloatingStatusDialog();
+void ToggleFloatingStatusDialog(BOOL bEnable);
+void ToggleGotoButton(HWND hWndBut, BOOL bEnable);
 void LoadReplacementSounds(void);
 BOOL UpdaterCheckForUpdates(void);
 DWORD WINAPI UpdaterThread(LPVOID lpParameter);
@@ -330,9 +354,9 @@ extern std::vector<int> vectorRandomSongIDs;
 /*extern std::random_device rdRandomDevice;
 extern std::mt19937 mtMersenneTwister;*/
 
-extern HWND hStatusDialog;
 extern HANDLE hWeatherBitmaps[13];
 extern HANDLE hCompassBitmaps[4];
+extern BOOL bStatusDialogMoving;
 
 extern char szLatestRelease[24];
 extern BOOL bUpdateAvailable;
@@ -345,15 +369,15 @@ void InstallAnimationSimCityDemoHooks(void);
 void InstallMiscHooks_SC2K1996(void);
 void UpdateMiscHooks_SC2K1996(void);
 void InstallMiscHooks_SC2KDemo(void);
+void InstallStatusHooks_SC2K1996(void);
+void UpdateStatus_SC2K1996(int iShow);
 void InstallQueryHooks(void);
 void InstallMilitaryHooks(void);
 extern "C" void __stdcall Hook_LoadSoundBuffer(int iSoundID, void* lpBuffer);
 extern "C" int __stdcall Hook_MusicPlay(int iSongID);
 extern "C" int __stdcall Hook_MusicStop(void);
 extern "C" int __stdcall Hook_MusicPlayNextRefocusSong(void);
-extern "C" int __stdcall Hook_402793(int iStatic, char* szText, int iMaybeAlways1, COLORREF crColor);
-extern "C" int __stdcall Hook_4021A8(HWND iShow);
-extern "C" int __stdcall Hook_40103C(int iShow);
+int L_MessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType);
 void PlaceMissileSilo(__int16 m_x, __int16 m_y);
 void ProposeMilitaryBaseDecline(void);
 void ProposeMilitaryBaseMissileSilos(void);

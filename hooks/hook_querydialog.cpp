@@ -1,6 +1,14 @@
 // sc2kfix hooks/hook_querydialog.cpp: hook for new query dialog features
 // (c) 2025 sc2kfix project (https://sc2kfix.net) - released under the MIT license
 
+// XXX: This code is Not Good and has done some bad stuff on certain versions of Windows 10. I'm
+// not entirely sure which versions are afflicted with Problems exacerbated by it but there are at
+// least two different reports of machines (out of a few hundred users as of writing) where the
+// game crashes immediately on launch with a nonsensical stack trace if the advanced query dialog
+// is enabled. Rewriting it is extremely low priority though since it's mostly for save file/map
+// debugging, and it works on my machine, so it's been changed as of Release 9c to be an opt-in
+// hook via the `-advquery` command-line option.
+
 #undef UNICODE
 #include <windows.h>
 #include <psapi.h>
@@ -224,11 +232,15 @@ extern "C" void _declspec(naked) Hook_QueryJumpTable(void) {
 		mov [iGlobalTileY], bp
 	}
 
+	DWORD *pCityToolBar;
+
+	pCityToolBar = &((DWORD *)pCWndRootWindow)[102];
+
 	// See if we need to intercept
 	if (GetAsyncKeyState(VK_MENU) < 0) {
-		Game_ToolMenuDisable((char*)pCWndRootWindow + 408);
-		DialogBox(hSC2KFixModule, MAKEINTRESOURCE(IDD_ADVANCEDQUERY), NULL, AdvancedQueryDialogProc);
-		Game_ToolMenuEnable((char*)pCWndRootWindow + 408);
+		Game_ToolMenuDisable(pCityToolBar);
+		DialogBox(hSC2KFixModule, MAKEINTRESOURCE(IDD_ADVANCEDQUERY), GameGetRootWindowHandle(), AdvancedQueryDialogProc);
+		Game_ToolMenuEnable(pCityToolBar);
 		__asm popa
 		GAMEJMP(0x43F837)
 	}
