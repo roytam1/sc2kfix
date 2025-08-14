@@ -49,6 +49,8 @@
 
 #define MAX_CITY_INVENTION_YEARS 17
 
+#define MAX_CITY_SUBTOOLS 12
+
 #define CORNER_NONE   0x0
 #define CORNER_BLEFT  0x1
 #define CORNER_BRIGHT 0x2
@@ -727,6 +729,16 @@ enum {
 };
 
 enum {
+	LAYER_UNDERGROUND,
+	LAYER_ZONES,
+	LAYER_INFRANATURE,
+	LAYER_SIGNS,
+	LAYER_BUILDINGS,
+
+	LAYER_COUNT
+};
+
+enum {
 	ZONEPOP_ALL,
 	ZONEPOP_RESLIGHT,
 	ZONEPOP_RESDENSE,
@@ -757,6 +769,132 @@ enum {
 	TOOL_GROUP_QUERY,
 	TOOL_GROUP_CENTERINGTOOL
 };
+
+// -- City Subtool enums --
+
+enum {
+	BULLDOZER_DEMOLISH,
+	BULLDOZER_LEVEL,
+	BULLDOZER_RAISE,
+	BULLDOZER_LOWER,
+	BULLDOZER_DEZONE,
+
+	BULLDOZER_COUNT
+};
+
+enum {
+	NATURE_TREES,
+	NATURE_WATER,
+
+	NATURE_COUNT
+};
+
+enum {
+	DISPATCH_POLICE,
+	DISPATCH_FIRE,
+	DISPATCH_MILITARY,
+
+	DISPATCH_COUNT
+};
+
+enum {
+	POWER_WIRES,
+	POWER_PLANTS,
+
+	POWER_COUNT
+};
+
+enum {
+	WATER_PIPES,
+	WATER_PUMP,
+	WATER_TOWER,
+	WATER_TREATMENT,
+	WATER_DESALINIZATION,
+
+	WATER_COUNT
+};
+
+// When 'REWARDS_ARCOLOGIES_WAITING' is selected
+// with wCurrentCityToolGroup == TOOL_GROUP_REWARDS,
+// the tile highlighting is always off.
+enum {
+	REWARDS_MAYORSHOUSE,
+	REWARDS_CITYHALL,
+	REWARDS_STATUE,
+	REWARDS_BRAUNLLAMADOME,
+	REWARDS_ARCOLOGIES_WAITING,
+	REWARDS_ARCOLOGIES_P,
+	REWARDS_ARCOLOGIES_F,
+	REWARDS_ARCOLOGIES_D,
+	REWARDS_ARCOLOGIES_L,
+
+	REWARDS_COUNT
+};
+
+enum {
+	ROADS_ROAD,
+	ROADS_HIGHWAY,
+	ROADS_TUNNEL,
+	ROADS_ONRAMP,
+	ROADS_BUSSTATION,
+
+	ROADS_COUNT
+};
+
+enum {
+	RAILS_RAIL,
+	RAILS_SUBWAY,
+	RAILS_DEPOT,
+	RAILS_SUBSTATION,
+	RAILS_SUBTORAIL,
+
+	RAILS_COUNT
+};
+
+enum {
+	PORTS_SEAPORT,
+	PORTS_AIRPORT,
+
+	PORTS_COUNT
+};
+
+// Residential, Commercial and Industrial
+enum {
+	ZONES_LOW,
+	ZONES_HIGH,
+
+	ZONES_COUNT
+};
+
+enum {
+	EDUCATION_SCHOOL,
+	EDUCATION_COLLEGE,
+	EDUCATION_LIBRARY,
+	EDUCATION_MUSEUM,
+
+	EDUCATION_COUNT
+};
+
+enum {
+	SERVICES_POLICE,
+	SERVICES_FIRESTATION,
+	SERVICES_HOSPITAL,
+	SERVICES_PRISON,
+
+	SERVICES_COUNT
+};
+
+enum {
+	PARKS_SMALLPARK,
+	PARKS_BIGPARK,
+	PARKS_ZOO,
+	PARKS_STADIUM,
+	PARKS_MARINA,
+
+	PARKS_COUNT
+};
+
+// -- City Subtool enums --
 
 enum {
 	MAPTOOL_GROUP_BULLDOZER = 0,
@@ -885,6 +1023,7 @@ typedef struct {
 	map_XBIT_bits_t b;
 } map_XBIT_t;
 
+// Struct defining an SC2K XTHG (Thing) entity.
 typedef struct {
 	BYTE iId; // use xthg types enum to determine
 	BYTE iDirection; // use xthg directions enum; for types airplane, helicopter, cargo ship, monster, etc; not sure how this is used for "deployment" types like fire, police, etc
@@ -900,6 +1039,7 @@ typedef struct {
 	BYTE iDunno7;
 } map_XTHG_t;
 
+// Struct defining an SC2K XLAB (Label) entity.
 typedef struct {
 	char szLabel[24];
 	BYTE bPadding;
@@ -939,13 +1079,13 @@ GAMECALL(0x401E47, BOOL, __cdecl, UseBulldozer, __int16 iTileTargetX, __int16 iT
 GAMECALL(0x401EA1, int, __cdecl, MapToolLowerTerrain, __int16 iTileTargetX, __int16 iTileTargetY)
 GAMECALL(0x401FA0, int, __cdecl, CheckAdjustTerrainAndPlacePowerLines, __int16 x, __int16 y)
 GAMECALL(0x40209F, __int16, __cdecl, SpawnTrain, __int16 x, __int16 y)
-GAMECALL(0x402211, unsigned int, __thiscall, DestroyStructure, DWORD *pThis, __int16 x, __int16 y, int iExplosion)
+GAMECALL(0x402211, unsigned int, __thiscall, DestroyStructure, void *pThis, __int16 x, __int16 y, int iExplosion)
 GAMECALL(0x40226B, int, __thiscall, UpdateAreaPortionFill, void *) // This appears to do a partial update of selected/highlighted area while appearing to dispense with immediate color updates.
 GAMECALL(0x402289, char, __cdecl, PerhapsGeneralZoneChooseAndPlaceBuilding, __int16 x, __int16 y, __int16 iBuildingPopLevel, __int16)
-GAMECALL(0x40235B, int, __thiscall, DrawSquareHighlight, DWORD *pThis, WORD wX1, WORD wY1, WORD wX2, WORD wY2)
+GAMECALL(0x40235B, int, __thiscall, DrawSquareHighlight, void *pThis, WORD wX1, WORD wY1, WORD wX2, WORD wY2)
 GAMECALL(0x4023B0, int, __cdecl, IsValidTransitItems, __int16 x, __int16 y)
 GAMECALL(0x4023EC, void, __stdcall, ToolMenuUpdate, void)
-GAMECALL(0x402414, int, __thiscall, MusicPlay, DWORD pThis, int iSongID)
+GAMECALL(0x402414, int, __thiscall, MusicPlay, void *pThis, int iSongID)
 GAMECALL(0x402478, int, __cdecl, SpawnHelicopter, __int16 x, __int16 y)
 GAMECALL(0x4024FA, char, __cdecl, PerhapsGeneralZoneChangeBuilding, __int16 x, __int16 y, __int16 iBuldingPopLevel, int iTileID)
 GAMECALL(0x40258B, int, __cdecl, GetScreenCoordsFromTileCoords, __int16 iTileTargetX, __int16 iTileTargetY, WORD *wNewScreenPointX, WORD *wNewScreenPointY)
@@ -954,7 +1094,7 @@ GAMECALL(0x402699, DWORD *, __thiscall, PointerToCSimcityViewClass, void* CSimci
 GAMECALL(0x4026B2, int, __cdecl, SimulationGrowSpecificZone, __int16 x, __int16 y, __int16 iTileID, __int16 iZoneType)
 GAMECALL(0x402725, int, __cdecl, PlacePowerLinesAtCoordinates, __int16 x, __int16 y)
 GAMECALL(0x402798, int, __cdecl, MapToolPlaceForest, __int16 iTileTargetX, __int16 iTileTargetY)
-GAMECALL(0x4027A7, int, __thiscall, CSimCityView_OnVScroll, DWORD pThis, int nSBCode, __int16 nPos, int pScrollBar)
+GAMECALL(0x4027A7, void, __thiscall, CSimCityView_OnVScroll, void *pThis, int nSBCode, __int16 nPos, DWORD *pScrollBar)
 GAMECALL(0x4027F2, int, __cdecl, ItemPlacementCheck, __int16 x, int y, __int16 iTileID, __int16 iTileArea)
 GAMECALL(0x402810, int, __thiscall, UpdateAreaCompleteColorFill, void *) // This appears to be a more comprehensive update that'll occur for highlighted/selected area or when you're moving the game area.
 GAMECALL(0x40281F, int, __cdecl, UpdateDisasterAndTransitStats, __int16 x, __int16 y, __int16 iZoneType, __int16 iBuildingPopLevel, __int16)
@@ -968,18 +1108,19 @@ GAMECALL(0x402B44, __int16, __cdecl, MapToolMenuAction, int iMouseKeys, POINT pt
 GAMECALL(0x402B94, int, __cdecl, MapToolLevelTerrain, __int16 iTileTargetX, __int16 iTileTargetY)
 GAMECALL(0x402C25, int, __cdecl, CityToolMenuAction, int iMouseKeys, POINT pt)
 GAMECALL(0x402CF2, void, __thiscall, SimcityAppSetGameCursor, void *pThis, int iNewCursor, BOOL bActive)
-GAMECALL(0x402F9A, int, __thiscall, GetScreenAreaInfo, DWORD pThis, LPRECT lpRect)
+GAMECALL(0x402F9A, void, __thiscall, GetScreenAreaInfo, void *pThis, LPRECT lpRect)
+GAMECALL(0x402FF9, int, __cdecl, FlipDWORDArrayEndianness, void* pArray, int iSizeBytes)
 GAMECALL(0x480140, void, __stdcall, LoadSoundBuffer, int iSoundID, void* pBuffer)
 GAMECALL(0x48A810, DWORD, __cdecl, Direct_MovieCheck, char *sMovStr)
 
 
 // MFC function pointers. Use with care.
 GAMECALL(0x4017B2, void, __thiscall, RefreshTitleBar, void* pThis)
-GAMECALL(0x40C3E0, void, __thiscall, CFrameWnd_ShowStatusBar, HWND* pThis, HWND hWnd)
-GAMECALL(0x4A3BDF, struct CWnd *, __stdcall, CWnd_FromHandle, HWND hWnd)
+GAMECALL(0x4A3BDF, DWORD *, __stdcall, CWnd_FromHandle, HWND hWnd)
 GAMECALL(0x4AA573, void, __thiscall, CWinApp_OnAppExit, void *pThis)
 GAMECALL(0x4AE0BC, void, __thiscall, CDocument_UpdateAllViews, void* pThis, void* pSender, int lHint, void* pHint)
-GAMECALL(0x4B234F, int, __stdcall, AfxMessageBox, unsigned int nIDPrompt, unsigned int nType, unsigned int nIDHelp)
+GAMECALL(0x4B232F, int, __stdcall, AfxMessageBoxStr, LPCTSTR lpszPrompt, UINT nType, UINT nIDHelp)
+GAMECALL(0x4B234F, int, __stdcall, AfxMessageBoxID, UINT nIDPrompt, UINT nType, UINT nIDHelp)
 
 // Random calls.
 GAMECALL(0x40116D, __int16, __cdecl, RandomWordLCGMod, __int16 iSeed)
@@ -1004,44 +1145,56 @@ GAMEOFF(WORD,	wTileCoordinateX,			0x4C7AB0)
 GAMEOFF(WORD,	wTileCoordinateY,			0x4C7AB4)
 GAMEOFF(WORD,	wGameScreenAreaX,			0x4C7AD8)		// Used here in CSimcityView_WM_LBUTTONDOWN and CSimcityView_WM_MOUSEFIRST
 GAMEOFF(WORD,	wGameScreenAreaY,			0x4C7ADC)		// Used here in CSimcityView_WM_LBUTTONDOWN and CSimcityView_WM_MOUSEFIRST
+GAMEOFF(WORD,	wViewInitialCoordX,			0x4C7CB0)
+GAMEOFF(WORD,	wViewInitialCoordY,			0x4C7CB4)
+GAMEOFF(WORD,	wViewInitialZoom,			0x4C7CB8)
 GAMEOFF(WORD,	wCurrentAngle,				0x4C7CF8)
 GAMEOFF(WORD,	wTileDirection,				0x4C7D60)
 GAMEOFF(WORD,	wMaybeActiveToolGroup,		0x4C7D88)
 GAMEOFF(WORD,	wDisasterFloodArea,			0x4C93A8)
+GAMEOFF(WORD,	wIndustrialMixPollutionBonus, 0x4C9428)
 GAMEOFF(WORD,	wViewRotation,				0x4C942C)
 GAMEOFF(BOOL,	bCityHasOcean,				0x4C94C0)
 GAMEOFF(DWORD,	dwArcologyPopulation,		0x4C94C4)
 GAMEOFF(DWORD,	dwDisasterActive,			0x4C9EE8)
+GAMEOFF_ARR(WORD, wBondArr,					0x4C9EF0)
 GAMEOFF(DWORD,	dwCityResidentialPopulation,	0x4CA194)
 GAMEOFF(CMFC3XString, pszCityName,				0x4CA1A0)
 GAMEOFF(WORD,	wNationalEconomyTrend,		0x4CA1BC)
+GAMEOFF(BYTE*,	bArrNewspaperTable2,		0x4CA1C0)
+GAMEOFF(WORD,	wPrisonBonus,				0x4CA1DC)
+GAMEOFF(WORD,	wIndustrialMixBonus,		0x4CA1E8)
 GAMEOFF(WORD,	wCurrentMapToolGroup,		0x4CA1EC)
 GAMEOFF(WORD,	wCityNeighborConnections1500,	0x4CA3F0)
+GAMEOFF(WORD*,	wArrIndustrialDemands,		0x4CA3F4)
 GAMEOFF(WORD,	wSubwayXUNDCount,			0x4CA41C)
-GAMEOFF(WORD,	wSetTriggerDisasterType,				0x4CA420)
-GAMEOFF(DWORD *,	pZonePops,					0x4CA428)
+GAMEOFF(WORD,	wSetTriggerDisasterType,	0x4CA420)
+GAMEOFF(DWORD*,	pZonePops,					0x4CA428)
 GAMEOFF(WORD,	wCityMode,					0x4CA42C)
+GAMEOFF(WORD,	wOldArrests,				0x4CA430)
 GAMEOFF(int,	dwCityLandValue,			0x4CA440)
 GAMEOFF(int,	dwCityFunds,				0x4CA444)
 GAMEOFF(WORD*, dwTileCount,					0x4CA4C8)		// WORD dwTileCount[256]
 GAMEOFF(DWORD,	dwCityValue,				0x4CA4D0)
+GAMEOFF(BOOL,	bOptionsAutoGoto,			0x4CA5D8)
 GAMEOFF(DWORD,	dwCityGarbage,				0x4CA5F0)		// Unused in vanilla game (sort of)
 GAMEOFF(WORD,	wCityStartYear,				0x4CA5F4)
 GAMEOFF(DWORD,	dwCityUnemployment,			0x4CA5F8)
-GAMEOFF_ARR(DWORD, dwNeighborValue,			0x4CA804)		// DWORD dwNeighborValue[4]
+GAMEOFF(DWORD*, dwNeighborValue,			0x4CA804)		// DWORD dwNeighborValue[4]
 GAMEOFF(WORD,	wNewspaperChoice,			0x4CA808)
 GAMEOFF(short,	wWaterLevel,				0x4CA818)
 GAMEOFF(WORD,	wMonsterXTHGIndex,			0x4CA81C)
 GAMEOFF(DWORD,	dwNationalPopulation,		0x4CA928)
-GAMEOFF_ARR(DWORD, dwNeighborFame,			0x4CA92C)		// DWORD dwNeighborFame[4]
+GAMEOFF(DWORD*, dwNeighborFame,				0x4CA92C)		// DWORD dwNeighborFame[4]
 GAMEOFF(WORD*,	dwMilitaryTiles,			0x4CA934)
 GAMEOFF(WORD,	wNationalTax,				0x4CA938)
 GAMEOFF(WORD,	wCurrentDisasterID,			0x4CA93C)
 GAMEOFF(DWORD,	dwCityOrdinances,			0x4CAA40)
 GAMEOFF(DWORD,	dwPowerUsedPercentage,		0x4CAA50)
-GAMEOFF(tagPOINT,	dwDisasterPoint,		0x4CAA58)
+GAMEOFF(POINT,	dwDisasterPoint,			0x4CAA58)
 GAMEOFF(DWORD,	dwCityPopulation,			0x4CAA74)
-GAMEOFF_ARR(DWORD, dwNeighborPopulation,	0x4CAD10)		// DWORD dwNeighborPopulation[4]
+GAMEOFF(DWORD*, dwNeighborPopulation,		0x4CAD10)		// DWORD dwNeighborPopulation[4]
+GAMEOFF(BYTE*,	bArrNewspaperTable1,		0x4CAD24)
 GAMEOFF(DWORD,	dwCityFame,					0x4CAD28)		// Unused in vanilla game
 GAMEOFF(BOOL,	bYearEndFlag,				0x4CAD2C)
 GAMEOFF(WORD,	wScreenPointX,				0x4CAD30)		// Used here in MapToolMenuAction
@@ -1053,6 +1206,7 @@ GAMEOFF_ARR(char, szNeighborNameNorth,		0x4CAD98)		// char[32]
 GAMEOFF_ARR(char, szNeighborNameEast,		0x4CADB8)		// char[32]
 GAMEOFF(BYTE,	bWeatherHeat,				0x4CADE0)
 GAMEOFF(RECT,	rcDst,						0x4CAD48)
+GAMEOFF_ARR(BYTE, stNeighborCities,			0x4CAD58)
 GAMEOFF(DWORD,	dwCityDays,					0x4CAE04)
 GAMEOFF(BYTE,	bWeatherWind,				0x4CAE0C)
 GAMEOFF(WORD,	wCityProgression,			0x4CB010)
@@ -1063,8 +1217,11 @@ GAMEOFF(WORD,	wCityElapsedYears,			0x4CB020)
 GAMEOFF_ARR(sprite_header_t*, pArrSpriteHeaders, 0x4CB1B8)
 GAMEOFF(BOOL,	bNewspaperSubscription,		0x4CB3D0)
 GAMEOFF(BYTE,	bWeatherHumidity,			0x4CB3D4)
+GAMEOFF(WORD,	wSewerBonus,				0x4CB3DC)
+GAMEOFF(WORD*,	wArrIndustrialTaxRates,		0x4CB3E0)
 GAMEOFF(WORD,	wCityCurrentSeason,			0x4CB3E8)
 GAMEOFF(microsim_t*, pMicrosimArr,			0x4CB3EC)
+GAMEOFF(DWORD*,	dwArrIndustrialPopulations,	0x4CB3F0)
 GAMEOFF(BOOL,	bCityHasRiver,				0x4CB3F8)
 GAMEOFF(WORD,	wCityDifficulty,			0x4CB404)
 GAMEOFF(BYTE,	bWeatherTrend,				0x4CB40C)
@@ -1075,13 +1232,15 @@ GAMEOFF(WORD,	wCityCenterX,				0x4CB458)
 GAMEOFF(WORD,	wCityCenterY,				0x4CB45C)
 GAMEOFF(DWORD,	dwCityWorkforcePercent,		0x4CB460)
 GAMEOFF(WORD,	wCurrentCityToolGroup,		0x4CB464)
+GAMEOFF(BOOL,	bOptionsAutoBudget,			0x4CC4B0)
 GAMEOFF(DWORD,	dwCityWorkforceEQ,			0x4CC4B4)
 GAMEOFF(DWORD,	dwWaterUsedPercentage,		0x4CC4B8)
 GAMEOFF(BOOL,	bNewspaperExtra,			0x4CC4BC)
 GAMEOFF(budget_t*,	pBudgetArr,				0x4CC4CC)		// Needs reverse engineering. See wiki.
 GAMEOFF(BOOL,	bNoDisasters,				0x4CC4D4)
-GAMEOFF_ARR(WORD, wNeighborNameIdx,			0x4CC4DC)		// WORD wNeighborNameIdx[4]
+GAMEOFF(WORD*,	wNeighborNameIdx,			0x4CC4DC)
 GAMEOFF(WORD,	wCityNeighborConnections1000,	0x4CC4D8)
+GAMEOFF(WORD,	wSportsTeams,				0x4CC4E0)
 GAMEOFF(BYTE,	bMilitaryBaseType,			0x4CC4E4)
 GAMEOFF(int,	dwCityBonds,				0x4CC4E8)
 GAMEOFF(DWORD,	dwCityTrafficUnknown,		0x4CC6F4)
@@ -1173,6 +1332,7 @@ GAMEOFF_ARR(DWORD,			dwMapXGRP,	0x4CC470)
 
 extern const char *getXTERNames(BYTE iVal);
 
+// Returns the tile ID from a given set of coordinates.
 static inline int GetTileID(int iTileX, int iTileY) {
 	if (iTileX >= 0 && iTileX < GAME_MAP_SIZE && iTileY >= 0 && iTileY < GAME_MAP_SIZE)
 		return dwMapXBLD[iTileX][iTileY].iTileID;
@@ -1180,14 +1340,18 @@ static inline int GetTileID(int iTileX, int iTileY) {
 		return -1;
 }
 
+// Returns the XLAB entry from a given Label ID.
 static inline const char* GetXLABEntry(int iLabelID) {
 	return dwMapXLAB[0][iLabelID].szLabel;
 }
 
+// Returns the sprite header for a given sprite ID.
 static inline sprite_header_t* GetSpriteHeader(int iSpriteID) {
 	return (*pArrSpriteHeaders + iSpriteID);
 }
 
+// Returns the current game palette. RE'd from the game decomp.
+// TODO: document a bit more about what the hell this actually does
 static inline HPALETTE GameGetPalette(void) {
 	DWORD* CSimcityAppThis = &pCSimcityAppThis;
 	DWORD* CPalette;
@@ -1202,10 +1366,13 @@ static inline HPALETTE GameGetPalette(void) {
 	return (HPALETTE)CPalette[1];
 }
 
+// Returns the HWND of the game's root window.
 static inline HWND GameGetRootWindowHandle(void) {
 	return (HWND)((DWORD*)pCWndRootWindow)[7];
 }
 
+// Returns a raw byte-swapped DWORD (BE->LE and vice versa).
+// XXX: should we be using something like htnol here?
 static inline DWORD SwapDWORD(DWORD dwData) {
 	return _byteswap_ulong(dwData);
 }

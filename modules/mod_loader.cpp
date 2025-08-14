@@ -53,6 +53,10 @@ int LoadNativeCodeHooks(HMODULE hModule) {
 
 		// Compare against each hook that we can register and flag if we register one
 		REGISTER_HOOK(Hook_OnNewCity_Before);
+		REGISTER_HOOK(Hook_LoadGame_Before);
+		REGISTER_HOOK(Hook_LoadGame_After);
+		REGISTER_HOOK(Hook_SaveGame_Before);
+		REGISTER_HOOK(Hook_SaveGame_After);
 		REGISTER_HOOK(Hook_GameDoIdleUpkeep_Before);
 		REGISTER_HOOK(Hook_GameDoIdleUpkeep_After);
 
@@ -78,6 +82,10 @@ bool operator<(const hook_function_t& a, const hook_function_t& b) {
 
 void SortHookLists(void) {
 	SORT_HOOKS(Hook_OnNewCity_Before);
+	SORT_HOOKS(Hook_LoadGame_Before);
+	SORT_HOOKS(Hook_LoadGame_After);
+	SORT_HOOKS(Hook_SaveGame_Before);
+	SORT_HOOKS(Hook_SaveGame_After);
 	SORT_HOOKS(Hook_GameDoIdleUpkeep_Before);
 	SORT_HOOKS(Hook_GameDoIdleUpkeep_After);
 
