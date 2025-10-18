@@ -26,8 +26,10 @@
 #include <sc2kfix.h>
 #include "../resource.h"
 
+#if !NOKUROKO
 #include <kuroko/kuroko.h>
 #include <kuroko/util.h>
+#endif
 
 #ifdef CONSOLE_ENABLED
 BOOL bConsoleEnabled = TRUE;
@@ -36,7 +38,9 @@ BOOL bConsoleEnabled = FALSE;
 #endif
 
 HANDLE hConsoleThread;
+#if !NOKUROKO
 DWORD dwConsoleThreadID;
+#endif
 char szCmdBuf[256] = { 0 };
 BOOL bConsoleUndocumentedMode = FALSE;
 
@@ -48,7 +52,9 @@ console_command_t fpConsoleCommands[] = {
 	{ "echo", ConsoleCmdEcho, CONSOLE_COMMAND_DOCUMENTED, "Print to console" },
 	{ "echo!", ConsoleCmdEcho, CONSOLE_COMMAND_UNDOCUMENTED, "Print to console without newline" },
 	{ "help", ConsoleCmdHelp, CONSOLE_COMMAND_DOCUMENTED, "Display this help" },
+#if !NOKUROKO
 	{ "run", ConsoleCmdRun, CONSOLE_COMMAND_DOCUMENTED, "Run Kuroko code" },
+#endif
 	{ "set", ConsoleCmdSet, CONSOLE_COMMAND_DOCUMENTED, "Modify game and plugin behaviour" },
 	{ "show", ConsoleCmdShow, CONSOLE_COMMAND_DOCUMENTED, "Display various game and plugin information" },
 	{ "unset", ConsoleCmdSet, CONSOLE_COMMAND_DOCUMENTED, "Modify game and plugin behaviour" },
@@ -64,6 +70,7 @@ void ConsoleScriptSleep(DWORD dwMilliseconds) {
 
 // COMMAND: run ...
 
+#if !NOKUROKO
 BOOL ConsoleCmdRun(const char* szCommand, const char* szArguments) {
 	MSG msg;
 	std::string strPossibleScriptName;
@@ -108,6 +115,7 @@ BOOL ConsoleCmdRun(const char* szCommand, const char* szArguments) {
 	}
 	return TRUE;
 }
+#endif
 
 BOOL ConsoleCmdClear(const char* szCommand, const char* szArguments) {
 	WriteConsole(GetStdHandle(STD_OUTPUT_HANDLE), "\x1b[2J\x1b[0;0H", sizeof("\x1b[2J\x1b[0;0H"), NULL, NULL);
@@ -196,18 +204,32 @@ BOOL ConsoleCmdShow(const char* szCommand, const char* szArguments) {
 
 BOOL ConsoleCmdShowDebug(const char* szCommand, const char* szArguments) {
 	printf("Debugging labels enabled: ");
-	if (mci_debug) {
+
+	if (guzzardo_debug)
+		printf("GUZZ=0x%08X ", guzzardo_debug);
+	if (mci_debug)
 		printf("MCI=0x%08X ", mci_debug);
-	}
-	if (snd_debug) {
-		printf("SND=0x%08X ", snd_debug);
-	}
-	if (timer_debug) {
-		printf("TIMER=0x%08X ", timer_debug);
-	}
-	if (mischook_debug) {
+	if (military_debug)
+		printf("MIL=0x%08X ", military_debug);
+	if (mischook_debug)
 		printf("MISC=0x%08X ", mischook_debug);
-	}
+	if (modloader_debug)
+		printf("MODS=0x%08X ", modloader_debug);
+	if (mus_debug)
+		printf("MUS=0x%08X ", mus_debug);
+	if (registry_debug)
+		printf("REG=0x%08X ", registry_debug);
+	if (sc2x_debug)
+		printf("SC2X=0x%08X ", sc2x_debug);
+	if (snd_debug)
+		printf("SND=0x%08X ", snd_debug);
+	if (sprite_debug)
+		printf("SPR=0x%08X ", sprite_debug);
+	if (timer_debug)
+		printf("TIMER=0x%08X ", timer_debug);
+	if (updatenotifier_debug)
+		printf("UPD=0x%08X ", updatenotifier_debug);
+
 	printf("\n");
 
 	return TRUE;
@@ -285,9 +307,9 @@ BOOL ConsoleCmdShowMicrosim(const char* szCommand, const char* szArguments) {
 
 	if (!strcmp(szArguments + 9, "list")) {
 		printf("Provisioned microsims:\n");
-		for (int i = 0; i < 150; i++)
-			if (pMicrosimArr[i].bTileID != TILE_CLEAR)
-				printf("  %i: bTileID = %u\n", i, pMicrosimArr[i].bTileID);
+		for (int i = 0; i <= MICROSIMID_MAX; i++)
+			if (GetMicroSimulatorTileID(i) != TILE_CLEAR)
+				printf("  %i: bTileID = %u\n", i, GetMicroSimulatorTileID(i));
 		printf("\n");
 		return TRUE;
 	}
@@ -331,17 +353,17 @@ BOOL ConsoleCmdShowMicrosim(const char* szCommand, const char* szArguments) {
 	}
 
 	if (sscanf_s(szArguments + 9, "%i", &iMicrosimID)) {
-		if (iMicrosimID >= 0 && iMicrosimID < 150) {
+		if (iMicrosimID >= MICROSIMID_MIN && iMicrosimID <= MICROSIMID_MAX) {
 skipscanf:
-			int iTileID = pMicrosimArr[iMicrosimID].bTileID;
+			BYTE iTileID = GetMicroSimulatorTileID(iMicrosimID);
 			printf(
 				"Microsim %i:\n"
-				"  Tile/Building: %s (%i / 0x%02X)\n"
-				"  Data (Byte):   %i\n"
-				"  Data (Word 1): %i\n"
-				"  Data (Word 2): %i\n"
-				"  Data (Word 3): %i\n", iMicrosimID, szTileNames[iTileID], iTileID, iTileID, pMicrosimArr[iMicrosimID].bMicrosimData[0],
-				*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[1]), *(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[3]), *(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[5]));
+				"  Tile/Building: %s (%u / 0x%02X)\n"
+				"  Data Stat0 (Byte):   %u\n"
+				"  Data Stat1 (Word 1): %u\n"
+				"  Data Stat2 (Word 2): %u\n"
+				"  Data Stat3 (Word 3): %u\n", iMicrosimID, szTileNames[iTileID], iTileID, iTileID, GetMicroSimulatorStat0(iMicrosimID),
+				GetMicroSimulatorStat1(iMicrosimID), GetMicroSimulatorStat2(iMicrosimID), GetMicroSimulatorStat3(iMicrosimID));
 			return TRUE;
 		}
 	}
@@ -387,8 +409,8 @@ BOOL ConsoleCmdShowMods(const char* szCommand, const char* szArguments) {
 
 	printf("%d native code mods loaded:\n", mapLoadedNativeMods.size());
 	for (auto stNativeMod : mapLoadedNativeMods) {
-		const char* szModVersion = strdup(FormatVersion(stNativeMod.second.iModVersionMajor, stNativeMod.second.iModVersionMinor, stNativeMod.second.iModVersionPatch));
-		const char* szModMinimumVersion = strdup(FormatVersion(stNativeMod.second.iMinimumVersionMajor, stNativeMod.second.iMinimumVersionMinor, stNativeMod.second.iMinimumVersionPatch));
+		const char* szModVersion = _strdup(FormatVersion(stNativeMod.second.iModVersionMajor, stNativeMod.second.iModVersionMinor, stNativeMod.second.iModVersionPatch));
+		const char* szModMinimumVersion = _strdup(FormatVersion(stNativeMod.second.iMinimumVersionMajor, stNativeMod.second.iMinimumVersionMinor, stNativeMod.second.iMinimumVersionPatch));
 		printf(
 			"  %s version %s (0x%08X)\n"
 			"    Mod Name:             %s\n"
@@ -476,7 +498,7 @@ static void test3(void) {
 }
 
 static BOOL ConsoleCmdShowTest(const char* szCommand, const char* szArguments) {
-	test3();
+	printf("%s\n", jsonSettingsCore.dump().c_str());
 	return TRUE;
 }
 
@@ -493,28 +515,28 @@ BOOL ConsoleCmdShowTile(const char* szCommand, const char* szArguments) {
 		return TRUE;
 	}
 
-	int iTileX = -1, iTileY = -1;
-	sscanf_s(szArguments + 5, "%i %i", &iTileX, &iTileY);
+	__int16 iTileX = -1, iTileY = -1;
+	sscanf_s(szArguments + 5, "%hi %hi", &iTileX, &iTileY);
 
 	if (iTileX >= 0 && iTileX < GAME_MAP_SIZE && iTileY >= 0 && iTileY < GAME_MAP_SIZE) {
-		int iTileID = dwMapXBLD[iTileX][iTileY].iTileID;
+		BYTE iTileID = GetTileID(iTileX, iTileY);
 
 		char szXBITFormatted[256] = { 0 };
-		if (dwMapXBIT[iTileX][iTileY].b.iPowerable)
+		if (XBITReturnIsPowerable(iTileX, iTileY))
 			strcat_s(szXBITFormatted, 256, "powerable ");
-		if (dwMapXBIT[iTileX][iTileY].b.iPowered)
+		if (XBITReturnIsPowered(iTileX, iTileY))
 			strcat_s(szXBITFormatted, 256, "powered ");
-		if (dwMapXBIT[iTileX][iTileY].b.iPiped)
+		if (XBITReturnIsPiped(iTileX, iTileY))
 			strcat_s(szXBITFormatted, 256, "piped ");
-		if (dwMapXBIT[iTileX][iTileY].b.iWatered)
+		if (XBITReturnIsWatered(iTileX, iTileY))
 			strcat_s(szXBITFormatted, 256, "watered ");
-		if (dwMapXBIT[iTileX][iTileY].b.iXVALMask)
-			strcat_s(szXBITFormatted, 256, "xvalmask ");
-		if (dwMapXBIT[iTileX][iTileY].b.iWater)
+		if (XBITReturnIsMark(iTileX, iTileY))
+			strcat_s(szXBITFormatted, 256, "mark ");
+		if (XBITReturnIsWater(iTileX, iTileY))
 			strcat_s(szXBITFormatted, 256, "water ");
-		if (dwMapXBIT[iTileX][iTileY].b.iRotated)
-			strcat_s(szXBITFormatted, 256, "rotated ");
-		if (dwMapXBIT[iTileX][iTileY].b.iSaltWater)
+		if (XBITReturnIsFlipped(iTileX, iTileY))
+			strcat_s(szXBITFormatted, 256, "flipped ");
+		if (XBITReturnIsSaltWater(iTileX, iTileY))
 			strcat_s(szXBITFormatted, 256, "saltwater ");
 		if (szXBITFormatted[0] == '\0')
 			strcpy_s(szXBITFormatted, 256, "none");
@@ -525,7 +547,7 @@ BOOL ConsoleCmdShowTile(const char* szCommand, const char* szArguments) {
 			"Tile (%i, %i):\n"
 			"  iTileID: %s (%i / 0x%02X)\n"
 			"  Zone:    %s\n"
-			"  XBIT:    0x%02X (%s)\n", iTileX, iTileY, szTileNames[iTileID], iTileID, iTileID, GetZoneName(dwMapXZON[iTileX][iTileY].b.iZoneType), *(BYTE*)&dwMapXBIT[iTileX][iTileY].b, szXBITFormatted);
+			"  XBIT:    0x%02X (%s)\n", iTileX, iTileY, szTileNames[iTileID], iTileID, iTileID, GetZoneName(XZONReturnZone(iTileX, iTileY)), XBITReturnMask(iTileX, iTileY), szXBITFormatted);
 		return TRUE;
 	}
 
@@ -542,15 +564,30 @@ BOOL ConsoleCmdShowVersion(const char* szCommand, const char* szArguments) {
 		szSC2KVersion = "1996 Special Edition";
 	}
 
+#if !NOKUROKO
 	KrkValue kuroko_version;
 	krk_tableGet_fast(&vm.system->fields, S("version"), &kuroko_version);
+#endif
 
+	// AF - the separation comma positioning in this case is deliberate
+	// in order to be a bit more "friendly" concerning missing or varied
+	// end-arguments depending on the build.
 	printf(
 		"sc2kfix version %s - https://sc2kfix.net\n"
 		"Plugin build info: %s\n"
 		"SimCity 2000 version: %s\n"
 		"Plugin loaded at 0x%08X\n"
-		"Kuroko version: Kuroko %s\n", szSC2KFixVersion, szSC2KFixBuildInfo, szSC2KVersion, (DWORD)hSC2KFixModule, AS_CSTRING(kuroko_version));
+#if !NOKUROKO
+		"Kuroko version: Kuroko %s\n" 
+#endif
+		,szSC2KFixVersion 
+		,szSC2KFixBuildInfo
+		,szSC2KVersion
+		,(DWORD)hSC2KFixModule 
+#if !NOKUROKO
+		,AS_CSTRING(kuroko_version)
+#endif
+	);
 
 	return TRUE;
 }
@@ -584,13 +621,27 @@ BOOL ConsoleCmdSet(const char* szCommand, const char* szArguments) {
 	return TRUE;
 }
 
+#define SETDEBUGOP(keyword, var, description) \
+	if (!strcmp(szArguments, keyword)) { \
+		var ## _debug = bOperation; \
+		printf("%sabled " description " debugging.\n", (bOperation ? "En" : "Dis")); \
+	}
+
 BOOL ConsoleCmdSetDebug(const char* szCommand, const char* szArguments) {
 	if (!szArguments || !*szArguments || !strcmp(szArguments, "?")) {
 		printf(
-			"  [un]set debug misc    Enable miscellaneous hook debugging\n"
-			"  [un]set debug mci     Enable MCI debugging\n"
-			"  [un]set debug snd     Enable WAV debugging\n"
-			"  [un]set debug timer   Enable timer debugging\n");
+			"  [un]set debug guzzardo    Enable cousin Vinnie debugging\n"
+			"  [un]set debug mci         Enable MCI debugging\n"
+			"  [un]set debug military    Enable military base algorithm debugging\n"
+			"  [un]set debug mischook    Enable miscellaneous debugging\n"
+			"  [un]set debug modloader   Enable native code mod loader debugging\n"
+			"  [un]set debug mus         Enable new music engine debugging\n"
+			"  [un]set debug registry    Enable registry override hooks debugging\n"
+			"  [un]set debug sc2x        Enable SC2X format and load/save debugging\n"
+			"  [un]set debug snd         Enable sound hook debugging\n"
+			"  [un]set debug sprite      Enable sprite and tileset hook debugging\n"
+			"  [un]set debug timer       Enable timer hook debugging\n"
+			"  [un]set debug update      Enable update notifier debugging\n");
 		return TRUE;
 	}
 
@@ -598,29 +649,29 @@ BOOL ConsoleCmdSetDebug(const char* szCommand, const char* szArguments) {
 	DWORD bOperation = DEBUG_FLAGS_EVERYTHING;
 	if (!strcmp(szCommand, "unset"))
 		bOperation = FALSE;
-	
-	if (!strcmp(szArguments, "mci")) {
-		mci_debug = bOperation;
-		printf("%sabled MCI debugging.\n", (bOperation ? "En" : "Dis"));
-	} else if (!strcmp(szArguments, "snd")) {
-		snd_debug = bOperation;
-		printf("%sabled WAV debugging.\n", (bOperation ? "En" : "Dis"));
-	} else if (!strcmp(szArguments, "timer")) {
-		timer_debug = bOperation;
-		printf("%sabled timer debugging.\n", (bOperation ? "En" : "Dis"));
-	} else if (!strcmp(szArguments, "misc")) {
-		mischook_debug = bOperation;
-		printf("%sabled misc hook debugging.\n", (bOperation ? "En" : "Dis"));
-	} else {
+
+	SETDEBUGOP("guzzardo", guzzardo, "cousin Vinnie")
+	else SETDEBUGOP("mci", mci, "MCI")
+	else SETDEBUGOP("military", military, "military base algorithm")
+	else SETDEBUGOP("mischook", mischook, "miscellaneous")
+	else SETDEBUGOP("modloader", modloader, "native code mod loader")
+	else SETDEBUGOP("mus", mus, "new music engine")
+	else SETDEBUGOP("registry", registry, "registry override hooks")
+	else SETDEBUGOP("sc2x", sc2x, "SC2X format and load/save")
+	else SETDEBUGOP("snd", snd, "sound hook")
+	else SETDEBUGOP("sprite", sprite, "sprite and tileset hook")
+	else SETDEBUGOP("timer", timer, "timer hook")
+	else SETDEBUGOP("update", updatenotifier, "update notifier")
+	else
 		printf("Invalid argument.\n");
-	}
+
 	return TRUE;
 }
 
 BOOL ConsoleCmdSetTile(const char* szCommand, const char* szArguments) {
 	if (!szArguments || !*szArguments || !strcmp(szArguments, "?")) {
 		printf(
-			"  [un]set tile <x> <y> rotate    Enable rotate flag on tile\n");
+			"  [un]set tile <x> <y> flip    Enable flip flag on tile\n");
 		return TRUE;
 	}
 
@@ -629,12 +680,15 @@ BOOL ConsoleCmdSetTile(const char* szCommand, const char* szArguments) {
 		bOperation = FALSE;
 
 	char szTileOperation[12] = { 0 };
-	int iTileX = -1, iTileY = -1;
-	sscanf_s(szArguments, "%i %i %s", &iTileX, &iTileY, szTileOperation, sizeof(szTileOperation));
+	__int16 iTileX = -1, iTileY = -1;
+	sscanf_s(szArguments, "%hi %hi %s", &iTileX, &iTileY, szTileOperation, sizeof(szTileOperation));
 
 	if (iTileX >= 0 && iTileX < GAME_MAP_SIZE && iTileY >= 0 && iTileY < GAME_MAP_SIZE) {
-		if (!strcmp(szTileOperation, "rotate")) {
-			dwMapXBIT[iTileX][iTileY].b.iRotated = bOperation;
+		if (!strcmp(szTileOperation, "flip")) {
+			if (bOperation)
+				XBITSetBits(iTileX, iTileY, XBIT_FLIPPED);
+			else
+				XBITClearBits(iTileX, iTileY, XBIT_FLIPPED);
 			return TRUE;
 		}
 	}

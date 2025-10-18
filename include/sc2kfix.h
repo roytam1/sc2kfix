@@ -6,6 +6,7 @@
 #pragma warning(disable : 4733)
 
 #include <windows.h>
+#include <windowsx.h>
 #include <string>
 #include <list>
 #include <map>
@@ -13,6 +14,8 @@
 #include <algorithm>
 //#include <random>
 
+#include <mfc3xhelp.h>
+#include <sc2kclasses.h>
 #include <smk.h>
 #include <sc2k_1996.h>
 #include <sc2k_demo.h>
@@ -35,7 +38,7 @@
 #define SC2KFIX_VERSION_MAJOR	0
 #define SC2KFIX_VERSION_MINOR	10
 #define SC2KFIX_VERSION_PATCH	0
-#define SC2KFIX_RELEASE_TAG		"r9c"
+#define SC2KFIX_RELEASE_TAG		"r9d"
 
 #define SC2KFIX_INIFILE		"sc2kfix.ini"
 #define SC2KFIX_MODSFOLDER	"mods"
@@ -43,7 +46,21 @@
 #define HOOKEXT extern "C" __declspec(dllexport)
 #define HOOKEXT_CPP __declspec(dllexport)
 
+#define WM_SC2KFIX_UPDATE 37241
+
+#define UPDATE_STRING "A new version of sc2kfix is available for download from the GitHub releases page."
+
 #include <json.hpp>
+
+#ifdef __cplusplus
+#include <sstream>
+template <typename T> std::string to_string_precision(const T value, const int prec) {
+	std::ostringstream out;
+	out.precision(prec);
+	out << std::fixed << value;
+	return std::move(out).str();
+}
+#endif
 
 #define countof(x) (sizeof(x)/sizeof(*(x)))
 #define lengthof(s) (countof(s)-1)
@@ -79,56 +96,32 @@
 #define DEBUG_FLAGS_NONE		0
 #define DEBUG_FLAGS_EVERYTHING	0xFFFFFFFF
 
-#define WM_KUROKO_REPL	WM_APP+0x10
-#define WM_KUROKO_FILE	WM_APP+0x11
-#define WM_CONSOLE_REPL	WM_APP+0x20
+#if !NOKUROKO
+#define WM_KUROKO_REPL	WM_APP+0x100
+#define WM_KUROKO_FILE	WM_APP+0x101
+#define WM_CONSOLE_REPL	WM_APP+0x200
+#endif
 
-#define HICOLORCNT 256
-#define LOCOLORCNT 16
+#define MUSIC_TRACKS 19
 
-// TODO: inline documentation
-typedef struct tagLOGPAL {
-	WORD wVersion;
-	WORD wNumPalEnts;
-	PALETTEENTRY pPalEnts[HICOLORCNT];
-} LOGPAL, *PLOGPAL;
+// It should be noted that with these values
+// they're referencing the min/max for the
+// user and sim label entries but NOT the total
+// maximum for all which is 256 (0 - 255).
+// Index 0 is used for the city-base mayor name.
+#define MIN_USER_TEXT_ENTRIES 1
+#define MAX_USER_TEXT_ENTRIES 51
+#define MIN_SIM_TEXT_ENTRIES MAX_USER_TEXT_ENTRIES
+#define MAX_SIM_TEXT_ENTRIES 200
 
-// TODO: inline documentation
-typedef struct testColStruct {
-	WORD wPos;
-	PALETTEENTRY pe;
-} colStruct;
+#define MICROSIMID_MIN 0
+#define MICROSIMID_MAX MAX_SIM_TEXT_ENTRIES - MIN_SIM_TEXT_ENTRIES
 
-// TODO: inline documentation
-typedef struct COLORTABLE_STRUCT {
-	WORD Index;
-	DWORD rgb;
-} colTable;
+#define PIER_MAXTILES 4
+#define RUNWAYSTRIP_MAXTILES 5
 
-// Reimplementation of the MFC 3.x message map entry structure.
-typedef struct {
-	UINT nMessage;
-	UINT nCode;
-	UINT nID;
-	UINT nLastID;
-	UINT_PTR nSig;
-	void* pfn;
-} AFX_MSGMAP_ENTRY;
-
-// Reimplementation of the CString class from MFC 3.x.
-class CMFC3XString {
-public:
-	LPTSTR m_pchData;
-	int m_nDataLength;
-	int m_nAllocLength;
-};
-
-// Reimplementation of an abstracted C string (not to be confused with the MFC CString) used in
-// the original SimCity 2000 code.
-class CSimString {
-public:
-	char *pStr;
-};
+#define MARINA_TILES_ALLDRY 0
+#define MARINA_TILES_ALLWET 9
 
 // Struct defining an injected hook from a loaded mod and its nested call priority.
 typedef struct {
@@ -169,6 +162,7 @@ typedef struct {
 	int iPriority;
 	int iType;
 	void* pFunction;
+	BOOL bEnabled;
 } hook_function_t;
 
 #include <hooklists.h>
@@ -195,6 +189,44 @@ typedef struct {
 	BYTE* bBuffer;
 	DWORD nBufSize;
 } sound_replacement_t;
+
+// This structure is explicitly used in the settings dialogue.
+// Once EndDialog is called (with TRUE set is the result)
+// have it apply the variables back to their equivalent
+// globals and save. If the EndDialog passed result is FALSE
+// it insulates the primary globals from being modified.
+typedef struct {
+	// These are the primary settings.
+	char szSettingsMayorName[64];
+	char szSettingsCompanyName[64];
+
+	BOOL bSettingsMusicInBackground;
+	BOOL bSettingsUseSoundReplacements;
+	BOOL bSettingsShuffleMusic;
+	BOOL bSettingsFrequentCityRefresh;
+	BOOL bSettingsUseMP3Music;
+	BOOL bSettingsAlwaysPlayMusic;
+	BOOL bSettingsAlwaysConsole;
+	BOOL bSettingsCheckForUpdates;
+	BOOL bSettingsDontLoadMods;
+	BOOL bSettingsUseStatusDialog;
+	BOOL bSettingsTitleCalendar;
+	BOOL bSettingsUseNewStrings;
+	BOOL bSettingsAlwaysSkipIntro;
+
+	UINT iSettingsMusicEngineOutput;
+	char szSettingsFluidSynthSoundfont[MAX_PATH + 1];
+
+	char szSettingsMIDITrackPath[MUSIC_TRACKS][MAX_PATH + 1];
+	char szSettingsMP3TrackPath[MUSIC_TRACKS][MAX_PATH + 1];
+
+	// Attributes that the settings dialogue needs to know before and after.
+	BOOL bActiveTrackChanged;
+	BOOL bActiveMusicEngineTouched;
+
+	UINT iCurrentMusicEngineOutput;
+	char szCurrentFluidSynthSoundfont[MAX_PATH + 1];
+} settings_t;
 
 // Enum for console command visibility in inline help. Documented commands always appear in inline
 // help, undocumented commands only appear if `set undocumented` has been activated. Commands
@@ -226,9 +258,13 @@ extern char szGamePath[MAX_PATH];
 
 // Settings globals
 
+extern json::JSON jsonSettingsCore;
+extern json::JSON jsonSettingsMods;
+
 extern char szSettingsMayorName[64];
 extern char szSettingsCompanyName[64];
 
+extern UINT iSettingsMusicEngineOutput;
 extern BOOL bSettingsMusicInBackground;
 extern BOOL bSettingsUseSoundReplacements;
 extern BOOL bSettingsShuffleMusic;
@@ -246,12 +282,26 @@ extern BOOL bSettingsTitleCalendar;
 extern BOOL bSettingsUseNewStrings;
 extern BOOL bSettingsAlwaysSkipIntro;
 
+// Music track aliases
+
+extern char szSettingsMIDITrackPath[MUSIC_TRACKS][MAX_PATH + 1];
+extern char szSettingsMP3TrackPath[MUSIC_TRACKS][MAX_PATH + 1];
+
+// Scenario state on-load information
+
+extern const char* scScenarioDescription;
+extern DWORD dwScenarioStartDays;
+extern DWORD dwScenarioStartPopulation;
+extern WORD wScenarioStartXVALTiles;
+extern DWORD dwScenarioStartTrafficDivisor;
+
 // Command line globals
 
 extern int iForcedBits;
 
 // Path adjustment (from registry_pathing area)
 
+BOOL L_IsPathValid(const char *pStr);
 const char *AdjustSource(char *buf, const char *path);
 
 // Utility functions
@@ -264,44 +314,56 @@ HOOKEXT const char* FormatVersion(int iMajor, int iMinor, int iPatch);
 HOOKEXT void ConsoleLog(int iLogLevel, const char* fmt, ...);
 HOOKEXT const char* GetLowHighScale(BYTE bScale);
 HOOKEXT BOOL FileExists(const char* name);
+HOOKEXT const char* GetFileBaseName(const char* szPath);
 HOOKEXT const char* GetModsFolderPath(void);
 HOOKEXT const char* GetOnIdleStateEnumName(int iState);
 //HBITMAP CreateSpriteBitmap(int iSpriteID);
+HOOKEXT BOOL IsFileNameValid(const char *pName);
 HOOKEXT BOOL WritePrivateProfileIntA(const char *section, const char *name, int value, const char *ini_name);
-void MigrateRegStringValue(HKEY hKey, const char *lpSubKey, const char *lpValueName, char *szOutBuf, DWORD dwLen);
-void MigrateRegDWORDValue(HKEY hKey, const char *lpSubKey, const char *lpValueName, DWORD *dwOut, DWORD dwSize);
-void MigrateRegBOOLValue(HKEY hKey, const char *lpSubKey, const char *lpValueName, BOOL *bOut);
 int MaxisDecompress(BYTE* pBuffer, size_t iBufSize, BYTE* pCompressedData, int iCompressedSize);
 HOOKEXT_CPP std::string Base64Encode(const unsigned char* pSrcData, size_t iSrcCount);
 HOOKEXT_CPP size_t Base64Decode(BYTE* pBuffer, size_t iBufSize, const unsigned char* pSrcData, size_t iSrcCount);
 HOOKEXT_CPP json::JSON EncodeDWORDArray(DWORD* dwArray, size_t iCount, BOOL bBigEndian);
 HOOKEXT_CPP json::JSON EncodeBudgetArray(DWORD* dwBudgetArray, BOOL bBigEndian);
 HOOKEXT_CPP void DecodeDWORDArray(DWORD* dwArray, json::JSON jsonArray, size_t iCount, BOOL bBigEndian);
+void PorntipsGuzzardo(void);
 
 // Globals etc.
 
 LONG WINAPI CrashHandler(LPEXCEPTION_POINTERS lpExceptions);
 BOOL CALLBACK InstallDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam);
 BOOL CALLBACK SettingsDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam);
-int DoRegistryCheckAndInstall(void);
+void LoadStoredPaths(void);
+void SaveStoredPaths(void);
+int DoCheckAndInstall(void);
 void SetGamePath(void);
-const char *GetIniPath();
+const char *GetIniPath(void);
+void InitializeSettings(void);
 void LoadSettings(void);
 void SaveSettings(BOOL onload);
 void ShowSettingsDialog(void);
+void ShowModSettingsDialog(void);
+void ShowScenarioStatusDialog(void);
 BOOL CanUseFloatingStatusDialog();
 void ToggleFloatingStatusDialog(BOOL bEnable);
 void ToggleGotoButton(HWND hWndBut, BOOL bEnable);
 void LoadReplacementSounds(void);
 BOOL UpdaterCheckForUpdates(void);
 DWORD WINAPI UpdaterThread(LPVOID lpParameter);
+const char *GetGameSoundPath();
+int GetCurrentActiveSongID();
+BOOL MusicLoadFluidSynth(void);
+void DoMusicPlay(int iSongID, BOOL bInterrupt);
+BOOL DoConfigureMusicTracks(settings_t *st, HWND hDlg, BOOL bMP3);
 
 BOOL WINAPI ConsoleCtrlHandler(DWORD fdwCtrlType);
 DWORD WINAPI ConsoleThread(LPVOID lpParameter);
 BOOL ConsoleEvaluateCommand(const char* szCommandLine, BOOL bInteractive);
 BOOL ConsoleCmdClear(const char* szCommand, const char* szArguments);
 BOOL ConsoleCmdEcho(const char* szCommand, const char* szArguments);
+#if !NOKUROKO
 BOOL ConsoleCmdRun(const char* szCommand, const char* szArguments);
+#endif
 BOOL ConsoleCmdWait(const char* szCommand, const char* szArguments);
 BOOL ConsoleCmdHelp(const char* szCommand, const char* szArguments);
 BOOL ConsoleCmdShow(const char* szCommand, const char* szArguments);
@@ -319,14 +381,20 @@ BOOL ConsoleCmdSetTile(const char* szCommand, const char* szArguments);
 
 void LoadNativeCodeMods(void);
 
+#if !NOKUROKO
 DWORD WINAPI KurokoThread(LPVOID lpParameter);
+#endif
 
 extern const char *gamePrimaryKey;
+
+extern char szLastStoredCityPath[MAX_PATH + 1];
+extern char szLastStoredTileSetPath[MAX_PATH + 1];
 
 extern BOOL bGameDead;
 extern HMODULE hRealWinMM;
 extern HMODULE hSC2KAppModule;
 extern HMODULE hSC2KFixModule;
+extern HMODULE hmodFluidSynth;
 extern HANDLE hConsoleThread;
 extern HMENU hGameMenu;
 extern HMENU hDebugMenu;
@@ -341,9 +409,11 @@ extern BOOL bInSCURK;
 extern BOOL bConsoleEnabled;
 extern BOOL bSkipIntro;
 extern BOOL bUseAdvancedQuery;
+#if !NOKUROKO
 extern BOOL bKurokoVMInitialized;
 extern DWORD dwConsoleThreadID;
 extern DWORD dwKurokoThreadID;
+#endif
 
 extern BOOL bFontsInitialized;
 extern HFONT hFontMSSansSerifRegular8;
@@ -352,6 +422,7 @@ extern HFONT hFontMSSansSerifRegular10;
 extern HFONT hFontMSSansSerifBold10;
 extern HFONT hFontArialRegular10;
 extern HFONT hFontArialBold10;
+extern HFONT hFontArialBold16;
 extern HFONT hSystemRegular12;
 
 extern std::map<HMODULE, sc2kfix_mod_info_t> mapLoadedNativeMods;
@@ -372,23 +443,27 @@ HOOKEXT BOOL bHookStopProcessing;
 
 // Hooks to inject in dllmain.cpp
 
-void InstallAnimationSimCity1996Hooks(void);
-void InstallAnimationSimCity1995Hooks(void);
-void InstallAnimationSimCityDemoHooks(void);
+void InstallAnimationHooks_SC2K1996(void);
+void InstallAnimationHooks_SC2K1995(void);
+void InstallAnimationHooks_SC2KDemo(void);
+void InstallSpriteAndTileSetHooks_SC2K1996(void);
+void InstallTileGrowthOrPlacementHandlingHooks_SC2K1996(void);
+void InstallToolBarHooks_SC2K1996(void);
 void InstallMiscHooks_SC2K1996(void);
 void UpdateMiscHooks_SC2K1996(void);
 void InstallMiscHooks_SC2KDemo(void);
 void InstallStatusHooks_SC2K1996(void);
 void UpdateStatus_SC2K1996(int iShow);
-void InstallQueryHooks(void);
-void InstallMilitaryHooks(void);
-void InstallSaveHooks(void);
-extern "C" void __stdcall Hook_LoadSoundBuffer(int iSoundID, void* lpBuffer);
+void InstallQueryHooks_SC2K1996(void);
+void InstallMilitaryHooks_SC2K1996(void);
+void InstallSaveHooks_SC2K1996(void);
+extern "C" int __stdcall Hook_LoadSoundBuffer(int iSoundID, void* lpBuffer);
 extern "C" int __stdcall Hook_MusicPlay(int iSongID);
 extern "C" int __stdcall Hook_MusicStop(void);
 extern "C" int __stdcall Hook_MusicPlayNextRefocusSong(void);
 int L_MessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType);
-void PlaceMissileSilo(__int16 m_x, __int16 m_y);
+void ReloadDefaultTileSet_SC2K1996();
+int IsValidSiloPosCheck(__int16 m_x, __int16 m_y);
 void ProposeMilitaryBaseDecline(void);
 void ProposeMilitaryBaseMissileSilos(void);
 void ProposeMilitaryBaseAirForceBase(void);
@@ -403,12 +478,16 @@ void InstallRegistryPathingHooks_SCURK1996(void);
 
 // Debugging settings
 
+extern UINT guzzardo_debug;
 extern UINT mci_debug;
 extern UINT military_debug;
 extern UINT mischook_debug;
 extern UINT modloader_debug;
 extern UINT mus_debug;
+extern UINT registry_debug;
+extern UINT sc2x_debug;
 extern UINT snd_debug;
+extern UINT sprite_debug;
 extern UINT timer_debug;
 extern UINT updatenotifier_debug;
 

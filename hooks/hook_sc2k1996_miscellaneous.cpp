@@ -17,6 +17,7 @@
 
 #undef UNICODE
 #include <windows.h>
+#include <windowsx.h>
 #include <psapi.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,13 +32,13 @@
 #pragma intrinsic(_ReturnAddress)
 
 #define MISCHOOK_DEBUG_OTHER 1
-#define MISCHOOK_DEBUG_MILITARY 2
+//#define MISCHOOK_DEBUG_MILITARY 2 // can be re-used
 #define MISCHOOK_DEBUG_MENU 4
-#define MISCHOOK_DEBUG_SAVES 8
+//#define MISCHOOK_DEBUG_SAVES 8 // can be re-used
 #define MISCHOOK_DEBUG_WINDOW 16
 #define MISCHOOK_DEBUG_DISASTERS 32
-#define MISCHOOK_DEBUG_MOVIES 64
-#define MISCHOOK_DEBUG_SMACK 128
+//#define MISCHOOK_DEBUG_MOVIES 64 // can be re-used
+//#define MISCHOOK_DEBUG_SPRITE 128 // can be re-used
 #define MISCHOOK_DEBUG_CHEAT 256
 
 #define MISCHOOK_DEBUG DEBUG_FLAGS_NONE
@@ -47,21 +48,18 @@
 #define MISCHOOK_DEBUG DEBUG_FLAGS_EVERYTHING
 #endif
 
-#define MAX_USER_LABELS 51
-
 UINT mischook_debug = MISCHOOK_DEBUG;
 
 static DWORD dwDummy;
 
-AFX_MSGMAP_ENTRY afxMessageMapMainMenu[9];
 DLGPROC lpNewCityAfxProc = NULL;
 char szTempMayorName[24] = { 0 };
 
+DLGPROC lpMainDialogAfxProc = NULL;
+HWND hwndMainDialog_SC2K1996 = NULL;
+BOOL bMainDialogUpdateState = FALSE;
+
 static BOOL bOverrideTickPlacementHighlight = FALSE;
-
-static int iChurchVirus = -1;
-
-static const char *theHouse = "Ilona's House";
 
 // Override some strings that have egregiously bad grammar/capitalization.
 // Maxis fail English? That's unpossible!
@@ -196,16 +194,6 @@ extern "C" HMENU __stdcall Hook_LoadMenuA(HINSTANCE hInstance, LPCSTR lpMenuName
 }
 #pragma warning(default : 6387)
 
-// Make sure our own menu items get enabled instead of disabled
-extern "C" BOOL __stdcall Hook_EnableMenuItem(HMENU hMenu, UINT uIDEnableItem, UINT uEnable) {
-	// XXX - There's gotta be a better way to do this.
-	if (uIDEnableItem == 5 && uEnable == 0x403)
-		return EnableMenuItem(hMenu, uIDEnableItem, MF_BYPOSITION | MF_ENABLED);
-	if (uIDEnableItem == 6 && uEnable == 0x403)
-		return EnableMenuItem(hMenu, uIDEnableItem, MF_BYPOSITION | MF_ENABLED);
-	return EnableMenuItem(hMenu, uIDEnableItem, uEnable);
-}
-
 extern "C" BOOL __stdcall Hook_ShowWindow(HWND hWnd, int nCmdShow) {
 	if (mischook_debug & MISCHOOK_DEBUG_WINDOW)
 		ConsoleLog(LOG_DEBUG, "WND:  0x%08X -> ShowWindow(0x%08X, %i)\n", _ReturnAddress(), hWnd, nCmdShow);
@@ -217,123 +205,99 @@ extern "C" BOOL __stdcall Hook_ShowWindow(HWND hWnd, int nCmdShow) {
 	return ShowWindow(hWnd, nCmdShow);
 }
 
-extern "C" DWORD __cdecl Hook_SmackOpen(LPCSTR lpFileName, uint32_t uFlags, int32_t iExBuf) {
-	if (mischook_debug & MISCHOOK_DEBUG_SMACK)
-		ConsoleLog(LOG_DEBUG, "SMK:  0x%08X -> _SmackOpen(%s, %u, %i)\n", _ReturnAddress(), lpFileName, uFlags, iExBuf);
-
-	if (!smk_enabled || bSkipIntro || bSettingsAlwaysSkipIntro)
-		if (strrchr(lpFileName, '\\'))
-			if (!strcmp(strrchr(lpFileName, '\\'), "\\INTROA.SMK") || !strcmp(strrchr(lpFileName, '\\'), "\\INTROB.SMK"))
-				return NULL;
-
-	char buf[MAX_PATH + 1];
-
-	memset(buf, 0, sizeof(buf));
-
-	return SMKOpenProc(AdjustSource(buf, lpFileName), uFlags, iExBuf);
-}
-
 int L_MessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType) {
 	int ret;
 
 	ToggleFloatingStatusDialog(FALSE);
-
 	ret = MessageBoxA(hWnd, lpText, lpCaption, uType);
-
 	ToggleFloatingStatusDialog(TRUE);
 
 	return ret;
 }
 
-extern "C" int __stdcall Hook_AfxMessageBoxStr(LPCTSTR lpszPrompt, UINT nType, UINT nIDHelp) {
-	int(__thiscall *H_CWinAppDoMessageBox)(void *, LPCTSTR, UINT, UINT) = (int(__thiscall *)(void *, LPCTSTR, UINT, UINT))0x4B2206;
-
-	DWORD &game_AfxCoreState = *(DWORD *)0x4CE8C0;
-
+int __stdcall Hook_AfxMessageBoxStr(LPCTSTR lpszPrompt, UINT nType, UINT nIDHelp) {
 	int ret;
 
 	ToggleFloatingStatusDialog(FALSE);
-
-	ret = H_CWinAppDoMessageBox((DWORD *)game_AfxCoreState, lpszPrompt, nType, nIDHelp);
-
+	ret = GameMain_WinApp_DoMessageBox(game_AfxCoreState.m_pCurrentWinApp, lpszPrompt, nType, nIDHelp);
 	ToggleFloatingStatusDialog(TRUE);
 
 	return ret;
 }
 
-extern "C" int __stdcall Hook_AfxMessageBoxID(UINT nIDPrompt, UINT nType, UINT nIDHelp) {
-	CMFC3XString *(__thiscall *H_CStringCons)(CMFC3XString *) = (CMFC3XString *(__thiscall *)(CMFC3XString *))0x4A2C28;
-	void(__thiscall *H_CStringDest)(CMFC3XString *) = (void(__thiscall *)(CMFC3XString *))0x4A2CB0;
-	BOOL(__thiscall *H_CStringLoadStringA)(CMFC3XString *, unsigned int) = (BOOL(__thiscall *)(CMFC3XString *, unsigned int))0x4A3453;
-	int(__thiscall *H_CWinAppDoMessageBox)(void *, LPCTSTR, UINT, UINT) = (int(__thiscall *)(void *, LPCTSTR, UINT, UINT))0x4B2206;
-
-	DWORD &game_AfxCoreState = *(DWORD *)0x4CE8C0;
-
+int __stdcall Hook_AfxMessageBoxID(UINT nIDPrompt, UINT nType, UINT nIDHelp) {
 	CMFC3XString cStr;
 	UINT nID;
 	int ret;
 
-	H_CStringCons(&cStr);
-	H_CStringLoadStringA(&cStr, nIDPrompt);
+	GameMain_String_Cons(&cStr);
+	GameMain_String_LoadStringA(&cStr, nIDPrompt);
 	nID = nIDHelp;
 	if (nIDHelp == -1)
 		nID = nIDPrompt;
 
 	ToggleFloatingStatusDialog(FALSE);
-
-	ret = H_CWinAppDoMessageBox((DWORD *)game_AfxCoreState, cStr.m_pchData, nType, nIDHelp);
-
+	ret = GameMain_WinApp_DoMessageBox(game_AfxCoreState.m_pCurrentWinApp, cStr.m_pchData, nType, nIDHelp);
 	ToggleFloatingStatusDialog(TRUE);
 
-	H_CStringDest(&cStr);
+	GameMain_String_Dest(&cStr);
 	return ret;
 }
 
-extern "C" int __stdcall Hook_FileDialogDoModal() {
-	DWORD *pThis;
+extern "C" int __stdcall Hook_FileDialog_DoModal() {
+	CMFC3XFileDialog *pThis;
 
 	__asm mov [pThis], ecx
-
-	HWND(__thiscall *H_DialogPreModal)(void *) = (HWND(__thiscall *)(void *))0x4A710B;
-	BOOL(__stdcall *H_GetLoadFileNameA)(LPOPENFILENAMEA) = (BOOL(__stdcall *)(LPOPENFILENAMEA))0x49C35A;
-	BOOL(__stdcall *H_GetSaveFileNameA)(LPOPENFILENAMEA) = (BOOL(__stdcall *)(LPOPENFILENAMEA))0x49C354;
-	void(__thiscall *H_DialogPostModal)(void *) = (void(__thiscall *)(void *))0x4A7154;
 
 	HWND hWndOwner;
 	bool bIsReserved;
 	int iRet;
+	int nPathLen, nFileLen, nNewLen;
+	char szPath[MAX_PATH + 1];
 	OPENFILENAMEA* pOfn;
+
+	memset(szPath, 0, sizeof(szPath));
 
 	ToggleFloatingStatusDialog(FALSE);
 
-	hWndOwner = H_DialogPreModal(pThis);
-	bIsReserved = pThis[36] == 0;
-	pThis[18] = (DWORD)hWndOwner;
-	pOfn = (OPENFILENAMEA*)(pThis + 17);
+	hWndOwner = GameMain_Dialog_PreModal(pThis);
+	bIsReserved = pThis->m_ofn.pvReserved == 0;
+	pThis->m_ofn.hwndOwner = hWndOwner;
+	pOfn = &pThis->m_ofn;
+
 	if (bIsReserved)
-		iRet = H_GetSaveFileNameA(pOfn);
+		iRet = GameMain_GetSaveFileNameA(pOfn);
 	else
-		iRet = H_GetLoadFileNameA(pOfn);
-	H_DialogPostModal(pThis);
+		iRet = GameMain_GetLoadFileNameA(pOfn);
+	GameMain_Dialog_PostModal(pThis);
 	if (!iRet)
-		iRet = 2;
+		iRet = IDCANCEL;
+
+	if (iRet != IDCANCEL) {
+		nPathLen = strlen(pOfn->lpstrFile);
+		nFileLen = strlen(pOfn->lpstrFileTitle);
+		if (nPathLen > 0 && nFileLen > 0) {
+			nNewLen = nPathLen - nFileLen;
+			if (nNewLen > 0) {
+				strncpy_s(szPath, sizeof(szPath)-1, pOfn->lpstrFile, nNewLen);
+				if (L_IsPathValid(szPath)) {
+					if ((DWORD)_ReturnAddress() == 0x42EB82 ||
+						(DWORD)_ReturnAddress() == 0x42FDCE) // From 'LoadCity' or 'SaveCityAs'
+						strcpy_s(szLastStoredCityPath, sizeof(szLastStoredCityPath) - 1, szPath);
+					else if ((DWORD)_ReturnAddress() == 0x42F312) // From 'LoadTileSet'
+						strcpy_s(szLastStoredTileSetPath, sizeof(szLastStoredTileSetPath) - 1, szPath);
+				}
+			}
+		}
+	}
 
 	ToggleFloatingStatusDialog(TRUE);
 
 	return iRet;
 }
 
-extern "C" DWORD __cdecl Hook_MovieCheck(char *sMovStr) {
-	if (sMovStr && strncmp(sMovStr, "INTRO", 5) == 0) {
-		if (!smk_enabled || bSkipIntro || bSettingsAlwaysSkipIntro)
-			return 1;
-	}
-
-	return Game_Direct_MovieCheck(sMovStr);
-}
-
-extern "C" void __stdcall Hook_SimcityAppOnQuit(void) {
-	DWORD *pThis;
+extern "C" void __stdcall Hook_SimcityApp_OnQuit(void) {
+	CSimcityAppPrimary *pThis;
 
 	__asm mov [pThis], ecx
 
@@ -348,21 +312,83 @@ extern "C" void __stdcall Hook_SimcityAppOnQuit(void) {
 
 	int iReqRet;
 
-	pThis[64] = 1;
-	pThis[63] = 0;
-	iReqRet = Game_ExitRequester((void *)pThis, pThis[206]);
+	pThis->dwSCAMainFrameDestroyVar = 1;
+	pThis->dwSCAOnQuitSuspendSim = 0;
+	iReqRet = Game_SimcityApp_ExitRequester(pThis, pThis->dwSCASysCmdOnQuitVar);
 	if (iReqRet != IDCANCEL) {
 		if (iReqRet == IDYES)
-			Game_DoSaveCity(pThis);
-		Game_PreGameMenuDialogToggle((void *)pThis[7], 0);
-		Game_CWinApp_OnAppExit(pThis);
+			Game_SimcityApp_SaveCity(pThis);
+		Game_MainFrame_ToggleToolBars((CMainFrame *)pThis->m_pMainWnd, 0);
+		GameMain_WinApp_OnAppExit(pThis);
 		return;
 	}
-	pThis[64] = 0;
-	pThis[63] = 0;
+	pThis->dwSCAMainFrameDestroyVar = 0;
+	pThis->dwSCAOnQuitSuspendSim = 0;
 }
 
+// Hook CCmdUI::Enable so we can programmatically enable and disable menu items reliably
+extern "C" void __stdcall Hook_CmdUI_Enable(BOOL bOn) {
+	CMFC3XCmdUI *pThis;
+	__asm mov [pThis], ecx
+
+	HWND hWndParent;
+	CMFC3XWnd *pWndParent;
+	HWND hNextDlgTabItem;
+	CMFC3XWnd *pNextDlgTabItem;
+	HWND hWndFocus;
+
+	if (pThis->m_pMenu != NULL) {
+		if (pThis->m_pSubMenu != NULL)
+			return;
+
+		EnableMenuItem(pThis->m_pMenu->m_hMenu, pThis->m_nIndex, MF_BYPOSITION |
+			(bOn ? MF_ENABLED : (MF_DISABLED | MF_GRAYED)));
+	}
+	else {
+		if (!bOn && (GetFocus() == pThis->m_pOther->m_hWnd)) {
+			hWndParent = GetParent(pThis->m_pOther->m_hWnd);
+			pWndParent = GameMain_Wnd_FromHandle(hWndParent);
+			hNextDlgTabItem = GetNextDlgTabItem(pWndParent->m_hWnd, pThis->m_pOther->m_hWnd, 0);
+			pNextDlgTabItem = GameMain_Wnd_FromHandle(hNextDlgTabItem);
+			hWndFocus = SetFocus(pNextDlgTabItem->m_hWnd);
+			GameMain_Wnd_FromHandle(hWndFocus);
+		}
+		EnableWindow(pThis->m_pOther->m_hWnd, bOn);
+	}
+	pThis->m_bEnableChanged = TRUE;
+
+	// This section has been added to account for menu items that aren't handled
+	// natively (yet).
+
+	// Ensure that the new 'Reload Default Tile Set' item is always enabled.
+	EnableMenuItem(GetMenu(GameGetRootWindowHandle()), IDM_GAME_FILE_RELOADDEFAULTTILESET, MF_BYCOMMAND | MF_ENABLED);
+
+	// Ensure the main config menu options are always enabled
+	EnableMenuItem(GetMenu(GameGetRootWindowHandle()), IDM_GAME_OPTIONS_SC2KFIXSETTINGS, MF_BYCOMMAND | MF_ENABLED);
+	EnableMenuItem(GetMenu(GameGetRootWindowHandle()), IDM_GAME_OPTIONS_MODCONFIG, MF_BYCOMMAND | MF_ENABLED);
+
+	// Only enable the Scenario Goals option if we need it
+	if (bInScenario)
+		EnableMenuItem(GetMenu(GameGetRootWindowHandle()), IDM_GAME_WINDOWS_SCENARIOGOALS, MF_BYCOMMAND | MF_ENABLED);
+	else
+		EnableMenuItem(GetMenu(GameGetRootWindowHandle()), IDM_GAME_WINDOWS_SCENARIOGOALS, MF_BYCOMMAND | MF_GRAYED);
+
+	// Ensure that the debug military options are always enabled.
+	EnableMenuItem(GetMenu(GameGetRootWindowHandle()), IDM_DEBUG_MILITARY_DECLINED, MF_BYCOMMAND | MF_ENABLED);
+	EnableMenuItem(GetMenu(GameGetRootWindowHandle()), IDM_DEBUG_MILITARY_AIRFORCE, MF_BYCOMMAND | MF_ENABLED);
+	EnableMenuItem(GetMenu(GameGetRootWindowHandle()), IDM_DEBUG_MILITARY_ARMYBASE, MF_BYCOMMAND | MF_ENABLED);
+	EnableMenuItem(GetMenu(GameGetRootWindowHandle()), IDM_DEBUG_MILITARY_NAVALYARD, MF_BYCOMMAND | MF_ENABLED);
+	EnableMenuItem(GetMenu(GameGetRootWindowHandle()), IDM_DEBUG_MILITARY_MISSILESILOS, MF_BYCOMMAND | MF_ENABLED);
+}
+
+// Function prototype: HOOKCB void Hook_GameDoIdleUpkeep_Before(void)
+// Ignored if bHookStopProcessing == TRUE.
+// SPECIAL NOTE: Ignoring this hook on callback results in the game effectively hanging. You have
+//   been warned!
 std::vector<hook_function_t> stHooks_Hook_GameDoIdleUpkeep_Before;
+
+// Function prototype: HOOKCB void Hook_GameDoIdleUpkeep_After(void)
+// Ignored if bHookStopProcessing == TRUE.
 std::vector<hook_function_t> stHooks_Hook_GameDoIdleUpkeep_After;
 
 extern "C" void __stdcall Hook_GameDoIdleUpkeep(void) {
@@ -370,7 +396,7 @@ extern "C" void __stdcall Hook_GameDoIdleUpkeep(void) {
 	__asm mov [pThis], ecx
 	for (const auto& hook : stHooks_Hook_GameDoIdleUpkeep_Before) {
 		bHookStopProcessing = FALSE;
-		if (hook.iType == HOOKFN_TYPE_NATIVE) {
+		if (hook.iType == HOOKFN_TYPE_NATIVE && hook.bEnabled) {
 			void (*fnHook)(void*) = (void(*)(void*))hook.pFunction;
 			fnHook(pThis);
 		}
@@ -386,7 +412,7 @@ extern "C" void __stdcall Hook_GameDoIdleUpkeep(void) {
 
 	for (const auto& hook : stHooks_Hook_GameDoIdleUpkeep_After) {
 		bHookStopProcessing = FALSE;
-		if (hook.iType == HOOKFN_TYPE_NATIVE) {
+		if (hook.iType == HOOKFN_TYPE_NATIVE && hook.bEnabled) {
 			void (*fnHook)(void*) = (void(*)(void*))hook.pFunction;
 			fnHook(pThis);
 		}
@@ -398,7 +424,7 @@ BAIL:
 	return;
 }
 
-// Fix up a specific setting of the GameDoIdleUpkeep state
+// Fix the missing "Maxis Presents" slide
 void __declspec(naked) Hook_4062AD(void) {
 	__asm {
 		mov dword ptr [ecx+0x14C], 1
@@ -408,11 +434,86 @@ void __declspec(naked) Hook_4062AD(void) {
 	}
 }
 
+// Function prototype: HOOKCB void Hook_OnNewCity_Before(void)
+// Cannot be ignored.
+// SPECIAL NOTE: I cannot for the life of me remember why I added this. It will almost certainly
+//   be replaced within the next three months (comment added 2025-08-15).
 std::vector<hook_function_t> stHooks_Hook_OnNewCity_Before;
 
 static BOOL CALLBACK Hook_NewCityDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam) {
 	switch (message) {
 	case WM_INITDIALOG:
+		// Difficulty selection tooltips
+		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, 109),
+			"Start a game on Easy difficulty.\n"
+			"Modifiers:\n"
+			" - $20,000 starting cash\n"
+			" - Slightly increased industrial demand\n"
+			" - Four months before disasters can occur");
+		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, 1001),
+			"Start a game on Easy difficulty.\n"
+			"Modifiers:\n"
+			" - $20,000 starting cash\n"
+			" - Slightly increased industrial demand\n"
+			" - Four months before disasters can occur");
+		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, 110),
+			"Start a game on Medium difficulty.\n"
+			"Modifiers:\n"
+			" - $10,000 starting cash\n"
+			" - Baseline industrial demand\n"
+			" - Two months before disasters can occur");
+		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, 1002),
+			"Start a game on Medium difficulty.\n"
+			"Modifiers:\n"
+			" - $10,000 starting cash\n"
+			" - Baseline industrial demand\n"
+			" - Two months before disasters can occur");
+		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, 111),
+			"Start a game on Hard difficulty.\n"
+			"Modifiers:\n"
+			" - $10,000 bond at 3% APR\n"
+			" - Slightly decreased industrial demand\n"
+			" - One month before disasters can occur");
+		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, 1003),
+			"Start a game on Hard difficulty.\n"
+			"Modifiers:\n"
+			" - $10,000 bond at 3% APR\n"
+			" - Slightly decreased industrial demand\n"
+			" - One month before disasters can occur");
+
+		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, 1010),
+			"Hover over a date to see the difference between starting years.");
+
+		// Year selection tooltips
+		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, 104),
+			"Start the game in 1900.\n"
+			"Modifiers:\n"
+			" - No forced unlocks.");
+		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, 105),
+			"Start the game in 1950.\n"
+			"Modifiers:\n"
+			" - Subways, buses, highways, and airports unlocked.\n"
+			" - Water treatment plants unlocked.\n"
+			" - 50% chance of natural gas power plants being unlocked.\n"
+			" - 5% chance of nuclear power plants being unlocked.");
+		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, 106),
+			"Start the game in 2000.\n"
+			"Modifiers:\n"
+			" - Subways, buses, highways, and airports unlocked.\n"
+			" - Water treatment and desalination plants unlocked.\n"
+			" - Natural gas, nuclear, wind, and solar power plants unlocked.\n"
+			" - 50% chance of Plymouth arcologies being unlocked.");
+		CreateTooltip(hwndDlg, GetDlgItem(hwndDlg, 107),
+			"Start the game in 2050.\n"
+			"Modifiers:\n"
+			" - Subways, buses, highways, and airports unlocked.\n"
+			" - Water treatment and desalination plants unlocked.\n"
+			" - Natural gas, nuclear, wind, solar, and micorwave power plants unlocked.\n"
+			" - 5% chance of fusion power plants being unlocked.\n"
+			" - Plymouth arcologies unlocked.\n"
+			" - 50% chance of Forest arcologies being unlocked.");
+
+		// Set the default mayor name.
 		SetDlgItemText(hwndDlg, 150, szSettingsMayorName);
 		break;
 	case WM_DESTROY:
@@ -421,20 +522,60 @@ static BOOL CALLBACK Hook_NewCityDialogProc(HWND hwndDlg, UINT message, WPARAM w
 		if (!GetDlgItemText(hwndDlg, 150, szTempMayorName, 24))
 			strcpy_s(szTempMayorName, 24, szSettingsMayorName);
 
-		strcpy_s(dwMapXLAB[0][0].szLabel, 24, szTempMayorName);
+		SetXLABEntry(0, szTempMayorName);
 
 		// XXX - this should probably be moved to a separate proper hook into the game itself
 		for (const auto& hook : stHooks_Hook_OnNewCity_Before) {
 			bHookStopProcessing = FALSE;
-			if (hook.iType == HOOKFN_TYPE_NATIVE) {
+			if (hook.iType == HOOKFN_TYPE_NATIVE && hook.bEnabled) {
 				void (*fnHook)(void) = (void(*)(void))hook.pFunction;
 				fnHook();
 			}
 		}
+
 		break;
 	}
 
 	return lpNewCityAfxProc(hwndDlg, message, wParam, lParam);
+}
+
+static BOOL CALLBACK Hook_MainDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam) {
+	std::string strInfo;
+
+	switch (message) {
+	case WM_INITDIALOG:
+		hwndMainDialog_SC2K1996 = hwndDlg;
+
+		if (bUpdateAvailable) {
+			strInfo = UPDATE_STRING;
+			bMainDialogUpdateState = TRUE;
+		}
+		else {
+			// Set the version string.
+			strInfo = "Running\nsc2kfix\nVersion\n";
+			strInfo += szSC2KFixVersion;
+			strInfo += " (";
+			strInfo += szSC2KFixReleaseTag;
+			strInfo += ")";
+		}
+
+		SetDlgItemText(hwndDlg, IDC_STATIC_UPDATENOTICE, strInfo.c_str());
+		break;
+	case WM_SC2KFIX_UPDATE:
+		if (!bMainDialogUpdateState) {
+			if (lParam == 1) {
+				strInfo = UPDATE_STRING;
+				bMainDialogUpdateState = TRUE;
+
+				SetDlgItemText(hwndDlg, IDC_STATIC_UPDATENOTICE, strInfo.c_str());
+			}
+		}
+		break;
+	case WM_DESTROY:
+		hwndMainDialog_SC2K1996 = NULL;
+		break;
+	}
+	return lpMainDialogAfxProc(hwndDlg, message, wParam, lParam);
 }
 
 #pragma warning(disable : 6387)
@@ -447,1732 +588,104 @@ extern "C" INT_PTR __stdcall Hook_DialogBoxParamA(HINSTANCE hInstance, LPCSTR lp
 	case 102:
 		return DialogBoxParamA(hSC2KFixModule, lpTemplateName, hWndParent, lpDialogFunc, dwInitParam);
 	case 103:
-		if (bUpdateAvailable)
-			return DialogBoxParamA(hSC2KFixModule, MAKEINTRESOURCE(103), hWndParent, lpDialogFunc, dwInitParam);
-		return DialogBoxParamA(hSC2KFixModule, MAKEINTRESOURCE(20104), hWndParent, lpDialogFunc, dwInitParam);
+		lpMainDialogAfxProc = lpDialogFunc;
+		return DialogBoxParamA(hSC2KFixModule, lpTemplateName, hWndParent, Hook_MainDialogProc, dwInitParam);
 	default:
 		return DialogBoxParamA(hInstance, lpTemplateName, hWndParent, lpDialogFunc, dwInitParam);
 	}
 }
 #pragma warning(default : 6387)
 
-// Fix rail and highway border connections not loading properly
-extern "C" void __stdcall Hook_LoadNeighborConnections1500(void) {
-	short* wCityNeighborConnections1500 = (short*)0x4CA3F0;
-	*wCityNeighborConnections1500 = 0;
-	*(DWORD*)0x4C85A0 = 0;
+// Game area Middle Mouse Button Down handler.
+static void DoOnMButtonDown(CSimcityAppPrimary *pSCApp, UINT nFlags, POINT pt) {
+	__int16 wTileCoords = 0;
+	BYTE bTileX = 0, bTileY = 0;
+	wTileCoords = Game_GetTileCoordsFromScreenCoords((__int16)pt.x, (__int16)pt.y);
+	bTileX = LOBYTE(wTileCoords);
+	bTileY = HIBYTE(wTileCoords);
 
-	for (int x = 0; x < GAME_MAP_SIZE; x++) {
-		for (int y = 0; y < GAME_MAP_SIZE; y++) {
-			if (dwMapXTXT[x][y].bTextOverlay == 0xFA) {
-				BYTE iTileID = dwMapXBLD[x][y].iTileID;
-				if (iTileID >= TILE_RAIL_LR && iTileID < TILE_TUNNEL_T
-					|| iTileID >= TILE_CROSSOVER_ROADLR_RAILTB && iTileID < TILE_SUSPENSION_BRIDGE_START_B
-					|| iTileID >= TILE_HIGHWAY_HTB && iTileID < TILE_REINFORCED_BRIDGE_PYLON)
-					++*wCityNeighborConnections1500;
-			}
+	if (wTileCoords & 0x8000)
+		return;
+	else {
+		if (nFlags & MK_CONTROL)
+			;
+		else if (nFlags & MK_SHIFT)
+			;
+		else if (GetAsyncKeyState(VK_MENU) < 0) {
+			// useful for tests
+		} else {
+			Game_SimcityApp_SoundPlaySound(pSCApp, SOUND_CLICK);
+			Game_CenterOnTileCoords(bTileX, bTileY);
 		}
 	}
-
-	if (mischook_debug & MISCHOOK_DEBUG_SAVES)
-		ConsoleLog(LOG_DEBUG, "SAVE: Loaded %d $1500 neighbor connections.\n", *wCityNeighborConnections1500);
 }
 
-extern "C" int __cdecl Hook_PlacePowerLinesAtCoordinates(__int16 x, __int16 y) {
-	__int16 iY;
-	int iResult;
-	unsigned int iTileID;
+extern "C" LRESULT __stdcall Hook_DefWindowProcA(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
+	CSimcityAppPrimary *pSCApp;
+	CSimcityView *pSCView;
 
-	iY = y;
-	if (x < 0) {
-TOBEGINNING:
-		iTileID = (unsigned int)dwMapXBLD[x];
-		P_LOBYTE(iTileID) = ((map_XBLD_t *)(iTileID))[iY].iTileID;
-		iResult = iTileID & 0xFFFF00FF;
-		if ((__int16)iResult < TILE_POWERLINES_LR) {
-			Game_PlaceTileWithMilitaryCheck(x, iY, TILE_POWERLINES_LR);
-TOTHISPART:
-			if (x < GAME_MAP_SIZE && iY < GAME_MAP_SIZE)
-				dwMapXBIT[x][iY].b.iPowerable = 1;
-			iResult = Game_CheckAdjustTerrainAndPlacePowerLines(x, iY);
-			if (x > 0)
-				iResult = Game_CheckAdjustTerrainAndPlacePowerLines(x - 1, iY);
-			if (x < GAME_MAP_SIZE-1)
-				iResult = Game_CheckAdjustTerrainAndPlacePowerLines(x + 1, iY);
-			if (iY > 0)
-				iResult = Game_CheckAdjustTerrainAndPlacePowerLines(x, iY - 1);
-			if (iY < GAME_MAP_SIZE-1)
-				return Game_CheckAdjustTerrainAndPlacePowerLines(x, iY + 1);
+	pSCApp = &pCSimcityAppThis;
+	pSCView = Game_SimcityApp_PointerToCSimcityViewClass(pSCApp);
+	if (Msg == WM_MBUTTONDOWN) {
+		if (pSCView && hWnd == pSCView->m_hWnd) {
+			POINT pt;
+
+			pt.x = GET_X_LPARAM(lParam);
+			pt.y = GET_Y_LPARAM(lParam);
+			DoOnMButtonDown(pSCApp, (UINT)wParam, pt);
+			return TRUE;
 		}
-		else {
-			switch ((__int16)iResult) {
-				case TILE_ROAD_LR:
-					Game_PlaceTileWithMilitaryCheck(x, iY, TILE_CROSSOVER_POWERTB_ROADLR);
-					goto TOTHISPART;
-				case TILE_ROAD_TB:
-					Game_PlaceTileWithMilitaryCheck(x, iY, TILE_CROSSOVER_POWERLR_ROADTB);
-					goto TOTHISPART;
-				case TILE_RAIL_LR:
-					Game_PlaceTileWithMilitaryCheck(x, iY, TILE_CROSSOVER_POWERTB_RAILLR);
-					goto TOTHISPART;
-				case TILE_RAIL_TB:
-					Game_PlaceTileWithMilitaryCheck(x, iY, TILE_CROSSOVER_POWERLR_RAILTB);
-					goto TOTHISPART;
-				case TILE_HIGHWAY_LR:
-					Game_PlaceTileWithMilitaryCheck(x, iY, TILE_CROSSOVER_HIGHWAYLR_POWERTB);
-					goto TOTHISPART;
-				case TILE_HIGHWAY_TB:
-					Game_PlaceTileWithMilitaryCheck(x, iY, TILE_CROSSOVER_HIGHWAYTB_POWERLR);
-					goto TOTHISPART;
-				default:
-					return iResult;
-			}
-		}
-		return iResult;
 	}
-	if (x >= GAME_MAP_SIZE)
-		goto TOBEGINNING;
-	if (y >= GAME_MAP_SIZE)
-		goto TOBEGINNING;
-	iResult = x;
-	if (*(BYTE *)&dwMapXBIT[x][y].b >= 0)
-		goto TOBEGINNING;
-	return iResult;
+	return DefWindowProcA(hWnd, Msg, wParam, lParam);
 }
 
-extern "C" void __stdcall Hook_ResetGameVars(void) {
-	void(__stdcall *H_ResetGameVars)(void) = (void(__stdcall *)(void))0x4348E0;
-	int(__thiscall *H_RotateAntiClockwise)(DWORD *) = (int(__thiscall *)(DWORD *))0x401A73;
+extern int iChurchVirus;
 
+extern "C" void __stdcall Hook_StartCleanGame(void) {
 	BOOL bMapEditor, bNewGame;
 
 	bMapEditor = ((DWORD)_ReturnAddress() == 0x42DF13);
 	bNewGame = ((DWORD)_ReturnAddress() == 0x42E482);
 	if (bMapEditor || bNewGame) {
-		DWORD *pThis;
+		CSimcityAppPrimary *pSCApp;
+		CSimcityView *pThis;
 
-		pThis = Game_PointerToCSimcityViewClass(&pCSimcityAppThis);
+		pSCApp = &pCSimcityAppThis;
+		pThis = Game_SimcityApp_PointerToCSimcityViewClass(pSCApp);
 
 		if (((__int16)wCityMode < 0 && bNewGame) || bMapEditor) {
 			if (wViewRotation != VIEWROTATION_NORTH) {
 				do
-					H_RotateAntiClockwise(pThis);
+					Game_SimcityView_RotateAntiClockwise(pThis);
 				while (wViewRotation != VIEWROTATION_NORTH);
-				UpdateWindow((HWND)pThis[7]); // This would be pThis->m_hWnd if the structs were present.
+				UpdateWindow(pThis->m_hWnd); // This would be pThis->m_hWnd if the structs were present.
 			}
 		}
 	}
 
-	H_ResetGameVars();
+	iChurchVirus = -1;
+	GameMain_StartCleanGame();
 }
 
-extern "C" int __cdecl Hook_SimulationGrowthTick(signed __int16 iStep, signed __int16 iSubStep) {
-#if 1
-	DWORD *pThis;
-	int iAttributes;
-	int iResult;
-	__int16 iX;
-	__int16 iY;
-	__int16 i;
-	__int16 iXMM;
-	__int16 iYMM;
-	BOOL bPlaceChurch;
-	int iXPos;
-	map_XZON_attribs_t maXZON;
-	__int16 iCurrZoneType;
-	int iPosAttributes;
-	__int16 iTileID;
-	__int16 iBuildingCount;
-	signed __int16 iFundingPercent;
-	__int16 iBuildingPopLevel;
-	char iRandSelectOne;
-	__int16 iCalculateResDemand;
-	__int16 iRemainderResDemand;
-	__int16 iMapValPerhaps;
-	__int16 iReplaceTile;
-	__int16 iNextX;
-	__int16 iNextY;
-
-	pThis = Game_PointerToCSimcityViewClass(&pCSimcityAppThis);
-	iAttributes = dwCityPopulation;
-	iX = iStep;
-	if (iChurchVirus > 0)
-		bPlaceChurch = 1;
-	else
-		bPlaceChurch = 2500u * (__int16)dwTileCount[TILE_INFRASTRUCTURE_CHURCH] < (unsigned int)dwCityPopulation;
-	wCurrentAngle = wPositionAngle[wViewRotation];
-	iResult = iStep / 2;
-	iXMM = iStep / 2;
-	while (iX < GAME_MAP_SIZE) {
-		iY = iSubStep;
-		for (i = iSubStep / 2; ; i = iY / 2) {
-			iYMM = i;
-			if (iY >= GAME_MAP_SIZE)
-				break;
-			iXPos = iX;
-			maXZON = dwMapXZON[iXPos][iY].b;
-			iCurrZoneType = maXZON.iZoneType;
-			iPosAttributes = iXPos * 4;
-			P_LOBYTE(iPosAttributes) = dwMapXBLD[iXPos][iY].iTileID;
-			P_LOBYTE(iAttributes) = iPosAttributes;
-			iAttributes &= 0xFFFF00FF;
-			if (maXZON.iZoneType != ZONE_NONE) {
-				if (maXZON.iZoneType > ZONE_DENSE_INDUSTRIAL) {
-					switch (iCurrZoneType) {
-						case ZONE_MILITARY:
-							// (I / N): For the most part the divisor is the number of tiles that the
-							// given building-type occupies, so it divides by that to get the actual
-							// number of buildings present.
-							//
-							// As far as I can tell when it comes to the 'MILITARYTILE_MHANGAR1' case...
-							// 12 of those type could be classified as a unit, so if iAttributes is greater
-							// than that unit, place more hangars.
-							// (old method - iAttribtues, new method - iBuildingCount)
-							//
-							// That crops up the most on Army and Naval cases.
-							switch (bMilitaryBaseType) {
-								case MILITARY_BASE_ARMY:
-									if ((rand() & 3) == 0) {
-#if 0
-										P_LOWORD(iAttributes) = (__int16)dwMilitaryTiles[MILITARYTILE_MPARKINGLOT] / 4;
-										iTileID = TILE_MILITARY_PARKINGLOT;
-										if ((__int16)iAttributes > (__int16)dwMilitaryTiles[MILITARYTILE_MHANGAR1] / 12)
-											iTileID = TILE_MILITARY_HANGAR1;
-#else
-										iBuildingCount = (__int16)dwMilitaryTiles[MILITARYTILE_MPARKINGLOT] / 4;
-										if ((__int16)dwMilitaryTiles[MILITARYTILE_TOPSECRET] / 4 < iBuildingCount) {
-											iTileID = TILE_MILITARY_HANGAR1;
-											if ((__int16)dwMilitaryTiles[MILITARYTILE_MHANGAR1] / 12 >= iBuildingCount)
-												iTileID = TILE_MILITARY_TOPSECRET;
-										}
-										else
-											iTileID = TILE_MILITARY_PARKINGLOT;
-#endif
-										if (!Game_SimulationGrowSpecificZone(iX, iY, iTileID, ZONE_MILITARY))
-											Game_SimulationGrowSpecificZone(iX, iY, TILE_MILITARY_HANGAR1, ZONE_MILITARY);
-									}
-									break;
-								case MILITARY_BASE_AIR_FORCE:
-									if ((rand() & 3) == 0) {
-										iAttributes = 5;
-										iBuildingCount = ((__int16)dwMilitaryTiles[MILITARYTILE_RUNWAY] + (__int16)dwMilitaryTiles[MILITARYTILE_RUNWAYCROSS]) / 5;
-										if ((__int16)dwMilitaryTiles[MILITARYTILE_MPARKINGLOT] / 4 < iBuildingCount) {
-											if (2 * (__int16)dwMilitaryTiles[MILITARYTILE_MCONTROLTOWER] >= iBuildingCount) {
-												if (2 * (__int16)dwMilitaryTiles[MILITARYTILE_MRADAR] >= iBuildingCount) {
-													if ((__int16)dwMilitaryTiles[MILITARYTILE_F15B] >= iBuildingCount) {
-														if ((__int16)dwMilitaryTiles[MILITARYTILE_BUILDING1] / 2 >= iBuildingCount) {
-															if ((__int16)dwMilitaryTiles[MILITARYTILE_BUILDING2] / 2 >= iBuildingCount) {
-																iTileID = TILE_INFRASTRUCTURE_HANGAR2;
-																if ((__int16)dwMilitaryTiles[MILITARYTILE_HANGAR2] / 4 >= iBuildingCount)
-																	iTileID = TILE_MILITARY_PARKINGLOT;
-															}
-															else
-																iTileID = TILE_INFRASTRUCTURE_BUILDING2;
-														}
-														else
-															iTileID = TILE_INFRASTRUCTURE_BUILDING1;
-													}
-													else
-														iTileID = TILE_MILITARY_F15B;
-												}
-												else
-													iTileID = TILE_MILITARY_RADAR;
-											}
-											else
-												iTileID = TILE_MILITARY_CONTROLTOWER;
-										}
-										else
-											iTileID = TILE_INFRASTRUCTURE_RUNWAY;
-										goto GOSPAWNAIRFIELD;
-									}
-									break;
-								case MILITARY_BASE_NAVY:
-									if ((rand() & 3) == 0) {
-										iBuildingCount = dwMilitaryTiles[MILITARYTILE_CRANE];
-										if ((__int16)dwMilitaryTiles[MILITARYTILE_CARGOYARD] / 4 < iBuildingCount) {
-											if ((__int16)dwMilitaryTiles[MILITARYTILE_TOPSECRET] / 4 >= iBuildingCount) {
-												BYTE(iAttributes) = 0;
-												iTileID = TILE_MILITARY_WAREHOUSE;
-												if ((__int16)dwMilitaryTiles[MILITARYTILE_MWAREHOUSE] / 3 >= iBuildingCount)
-													iTileID = TILE_INFRASTRUCTURE_CARGOYARD;
-											}
-											else
-												iTileID = TILE_MILITARY_TOPSECRET;
-										}
-										else
-											iTileID = TILE_INFRASTRUCTURE_CRANE;
-										if (!Game_SimulationGrowSpecificZone(iX, iY, iTileID, ZONE_MILITARY))
-											goto GOSPAWNSEAYARD;
-									}
-									break;
-								case MILITARY_BASE_MISSILE_SILOS:
-									if ((BYTE)iPosAttributes != TILE_MILITARY_MISSILESILO)
-										Game_SimulationGrowSpecificZone(iX, iY, TILE_MILITARY_MISSILESILO, ZONE_MILITARY);
-									break;
-								default:
-									goto GOUNDCHECKTHENYINCREASE;
-							}
-							break;
-						case ZONE_SEAPORT:
-							if ((rand() & 3) != 0) {
-								if ((WORD)iAttributes == TILE_INFRASTRUCTURE_CRANE && (rand() & 3) == 0)
-									Game_SpawnShip(iX, iY);
-							}
-							else {
-								iBuildingCount = dwTileCount[TILE_INFRASTRUCTURE_CRANE];
-								if ((__int16)dwTileCount[TILE_INFRASTRUCTURE_CARGOYARD] / 4 < iBuildingCount) {
-									if ((__int16)dwTileCount[TILE_MILITARY_LOADINGBAY] / 4 >= iBuildingCount) {
-										BYTE(iAttributes) = 0;
-										iTileID = TILE_MILITARY_WAREHOUSE;
-										if ((__int16)dwTileCount[TILE_MILITARY_WAREHOUSE] / 3 >= iBuildingCount)
-											iTileID = TILE_INFRASTRUCTURE_CARGOYARD;
-									}
-									else
-										iTileID = TILE_MILITARY_LOADINGBAY;
-								}
-								else
-									iTileID = TILE_INFRASTRUCTURE_CRANE;
-								if (!Game_SimulationGrowSpecificZone(iX, iY, iTileID, ZONE_SEAPORT)) {
-GOSPAWNSEAYARD:
-									Game_SimulationGrowSpecificZone(iX, iY, TILE_MILITARY_WAREHOUSE, iCurrZoneType);
-								}
-							}
-							break;
-						case ZONE_AIRPORT:
-							if ((rand() & 3) != 0) {
-								if ((WORD)iAttributes == TILE_INFRASTRUCTURE_RUNWAY &&
-									!(rand() % 30) &&
-									iX < GAME_MAP_SIZE &&
-									iY < GAME_MAP_SIZE) {
-									iAttributes = (int)&dwMapXBIT[iXPos];
-									if (dwMapXBIT[iX][iY].b.iPowered != 0) {
-										if (rand() % 10 < 4) {
-											Game_SpawnHelicopter(iX, iY);
-											break;
-										}
-										if ((wViewRotation & 1) != 0) {
-											if (iX < GAME_MAP_SIZE &&
-												iY < GAME_MAP_SIZE &&
-												((map_XBIT_bits_t *)iAttributes + iY)->iRotated != 0)
-												goto AIRFIELDSKIPAHEAD;
-										}
-										else if (iX >= GAME_MAP_SIZE ||
-											iY >= GAME_MAP_SIZE ||
-											((map_XBIT_bits_t *)iAttributes + iY)->iRotated == 0) {
-AIRFIELDSKIPAHEAD:
-											Game_SpawnAeroplane(iX, iY, 0);
-											break;
-										}
-										Game_SpawnAeroplane(iX, iY, 2);
-									}
-								}
-							}
-							else {
-								iAttributes = 5;
-								iBuildingCount = ((__int16)dwTileCount[TILE_INFRASTRUCTURE_RUNWAY] + (__int16)dwTileCount[TILE_INFRASTRUCTURE_RUNWAYCROSS]) / 5;
-								if ((__int16)dwTileCount[TILE_INFRASTRUCTURE_PARKINGLOT] / 4 < iBuildingCount) {
-									if (2 * (__int16)dwTileCount[TILE_INFRASTRUCTURE_CONTROLTOWER_CIV] >= iBuildingCount) {
-										if (2 * (__int16)dwTileCount[TILE_MILITARY_RADAR] >= iBuildingCount) {
-											if ((__int16)dwTileCount[TILE_MILITARY_TARMAC] >= iBuildingCount) {
-												if ((__int16)dwTileCount[TILE_INFRASTRUCTURE_BUILDING1] / 2 >= iBuildingCount) {
-													if ((__int16)dwTileCount[TILE_INFRASTRUCTURE_BUILDING2] / 2 >= iBuildingCount) {
-														iTileID = TILE_INFRASTRUCTURE_HANGAR2;
-														if ((__int16)dwTileCount[TILE_INFRASTRUCTURE_HANGAR2] / 4 >= iBuildingCount)
-															iTileID = TILE_INFRASTRUCTURE_PARKINGLOT;
-													}
-													else
-														iTileID = TILE_INFRASTRUCTURE_BUILDING2;
-												}
-												else
-													iTileID = TILE_INFRASTRUCTURE_BUILDING1;
-											}
-											else
-												iTileID = TILE_MILITARY_TARMAC;
-										}
-										else
-											iTileID = TILE_MILITARY_RADAR;
-									}
-									else
-										iTileID = TILE_INFRASTRUCTURE_CONTROLTOWER_CIV;
-								}
-								else
-									iTileID = TILE_INFRASTRUCTURE_RUNWAY;
-GOSPAWNAIRFIELD:
-								Game_SimulationGrowSpecificZone(iX, iY, iTileID, iCurrZoneType);
-							}
-							break;
-						default:
-							break;
-					}
-				}
-				else {
-					if ((__int16)iAttributes >= TILE_RESIDENTIAL_1X1_LOWERCLASSHOMES1) {
-						if ((*(BYTE *)&maXZON & 0xF0 & wCurrentAngle) == 0) {
-							// This case appears to be hit with >= 2x2 zoned items.
-							goto GOUNDCHECKTHENYINCREASE;
-						}
-						P_LOWORD(iAttributes) = iAttributes - TILE_RESIDENTIAL_1X1_LOWERCLASSHOMES1;
-						iBuildingPopLevel = wBuildingPopLevel[(__int16)iAttributes];
-					}
-					else {
-						if ((__int16)iAttributes >= TILE_ROAD_LR || !Game_IsValidTransitItems(iX, iY)) {
-							goto GOUNDCHECKTHENYINCREASE;
-						}
-						P_LOWORD(iAttributes) = 0;
-						iBuildingPopLevel = 0;
-					}
-					if (Game_IsZonedTilePowered(iX, iY)) {
-						if (Game_UpdateDisasterAndTransitStats(iX, iY, iCurrZoneType, iBuildingPopLevel, 100)) {
-							iCalculateResDemand = wCityResidentialDemand[(__int16)((iCurrZoneType - 1) / 2)] + 2000;
-							iRemainderResDemand = 4000 - iCalculateResDemand;
-						}
-						else {
-							iCalculateResDemand = 0;
-							iRemainderResDemand = 4000;
-						}
-					}
-					else {
-						iCalculateResDemand = 0;
-						iRemainderResDemand = 4000;
-					}
-					// This block is encountered when a given area is not "under construction" and not "abandonded".
-					// A building is then randomly selected in 
-					if (iBuildingPopLevel > 0 && !bAreaState[(__int16)iAttributes]) {
-						pZonePops[iCurrZoneType] += wBuildingPopulation[iBuildingPopLevel]; // Values appear to be: 1[1], 8[2], 12[3], 36[4] (wBuildingPopulation[iBuildingPopLevel] format.
-						if ((unsigned __int16)rand() < (__int16)(iRemainderResDemand / iBuildingPopLevel)) {
-							iRandSelectOne = rand() & 1;
-							Game_PerhapsGeneralZoneChangeBuilding(iX, iY, iBuildingPopLevel, iRandSelectOne);
-							goto GOUNDCHECKTHENYINCREASE;
-						}
-					}
-					iAttributes = (int)&bAreaState[(__int16)iAttributes];
-					if (*(BYTE *)iAttributes == 1 && (unsigned __int16)rand() < 0x4000 / iBuildingPopLevel) {
-						if (bPlaceChurch && (iBuildingPopLevel & 2) != 0 && iCurrZoneType < ZONE_LIGHT_COMMERCIAL) {
-							Game_PlaceChurch(iX, iY);
-							goto GOUNDCHECKTHENYINCREASE;
-						}
-GOGENERALZONEITEMPLACE:
-						Game_PerhapsGeneralZoneChooseAndPlaceBuilding(iX, iY, iBuildingPopLevel, (iCurrZoneType - 1) / 2);
-						goto GOUNDCHECKTHENYINCREASE;
-					}
-					if (*(BYTE *)iAttributes == 2) {
-						// Abandoned buildings.
-						iAttributes = iBuildingPopLevel;
-						pZonePops[ZONEPOP_ABANDONED] += wBuildingPopulation[iBuildingPopLevel];
-						if ((unsigned __int16)rand() >= 15 * iCalculateResDemand / iBuildingPopLevel)
-							goto GOUNDCHECKTHENYINCREASE;
-						goto GOGENERALZONEITEMPLACE;
-					}
-					// This block is where construction will start.
-					if (iBuildingPopLevel != 4 &&
-						((iCurrZoneType & 1) == 0 || iBuildingPopLevel <= 0) &&
-						(iCurrZoneType >= 5 ||
-						(iBuildingPopLevel != 1 || dwMapXVAL[iXMM][iYMM].bBlock >= 0x20u) &&
-							(iBuildingPopLevel != 2 || dwMapXVAL[iXMM][iYMM].bBlock >= 0x60u) &&
-							(iBuildingPopLevel != 3 || dwMapXVAL[iXMM][iYMM].bBlock >= 0xC0u))) {
-						iAttributes = 3 * iCalculateResDemand / (iBuildingPopLevel + 1);
-						if (iAttributes > (unsigned __int16)rand())
-							Game_PerhapsGeneralZoneStartBuilding(iX, iY, iBuildingPopLevel, iCurrZoneType);
-					}
-				}
-			}
-			else {
-				if ((__int16)iAttributes < TILE_ROAD_LR)
-					goto GOUNDCHECKTHENYINCREASE;
-				if ((unsigned __int16)Game_RandomWordLFSRMod128())
-					goto GOAFTERSETXBIT;
-				if ((__int16)iAttributes >= TILE_ROAD_LR && (__int16)iAttributes < TILE_RAIL_LR ||
-					(__int16)iAttributes >= TILE_CROSSOVER_POWERTB_ROADLR && (__int16)iAttributes < TILE_CROSSOVER_POWERTB_RAILLR ||
-					(WORD)iAttributes == TILE_CROSSOVER_HIGHWAYLR_ROADTB ||
-					(WORD)iAttributes == TILE_CROSSOVER_HIGHWAYTB_ROADLR ||
-					(__int16)iAttributes >= TILE_ONRAMP_TL && (__int16)iAttributes < TILE_HIGHWAY_HTB) {
-					// Transportation budget, roads - if below 100% related tiles will be replaced with rubble.
-					iFundingPercent = pBudgetArr[BUDGET_ROAD].iFundingPercent;
-					if (iFundingPercent != 100 && (unsigned __int16)((unsigned __int16)rand() % 100u) >= iFundingPercent) {
-						iRandSelectOne = (rand() & 3) + 1;
-						Game_PlaceTileWithMilitaryCheck(iX, iY, iRandSelectOne);
-						if (iX >= GAME_MAP_SIZE || iY >= GAME_MAP_SIZE)
-							goto GOAFTERSETXBIT;
-						goto GOBEFORESETXBIT;
-					}
-				}
-				else if ((__int16)iAttributes >= TILE_RAIL_LR && (__int16)iAttributes < TILE_TUNNEL_T ||
-					(__int16)iAttributes >= TILE_CROSSOVER_ROADLR_RAILTB && (__int16)iAttributes < TILE_HIGHWAY_LR ||
-					(__int16)iAttributes >= TILE_SUBTORAIL_T && (__int16)iAttributes < TILE_RESIDENTIAL_1X1_LOWERCLASSHOMES1 ||
-					(WORD)iAttributes == TILE_CROSSOVER_HIGHWAYLR_RAILTB ||
-					(WORD)iAttributes == TILE_CROSSOVER_HIGHWAYTB_RAILLR) {
-					// Transportation budget, rails - if below 100% related tiles will be replaced with rubble.
-					iFundingPercent = pBudgetArr[BUDGET_RAIL].iFundingPercent;
-					if (iFundingPercent != 100 && (unsigned __int16)((unsigned __int16)rand() % 100u) >= iFundingPercent) {
-						iRandSelectOne = (rand() & 3) + 1;
-						Game_PlaceTileWithMilitaryCheck(iX, iY, iRandSelectOne);
-						if (iX >= GAME_MAP_SIZE || iY >= GAME_MAP_SIZE)
-							goto GOAFTERSETXBIT;
-GOBEFORESETXBIT:
-						*(BYTE *)&dwMapXBIT[iX][iY].b &= ~0x80u;
-GOAFTERSETXBIT:
-						if ((__int16)iAttributes >= TILE_INFRASTRUCTURE_RAILSTATION) {
-							if ((WORD)iAttributes == TILE_INFRASTRUCTURE_RAILSTATION &&
-								iX < GAME_MAP_SIZE &&
-								iY < GAME_MAP_SIZE &&
-								dwMapXBIT[iX][iY].b.iPowered != 0 &&
-								!(unsigned __int16)Game_RandomWordLFSRMod4()) {
-								if ((__int16)dwTileCount[TILE_INFRASTRUCTURE_RAILSTATION] / 4 > wActiveTrains)
-									Game_SpawnTrain(iX, iY);
-							}
-							else if ((WORD)iAttributes == TILE_INFRASTRUCTURE_MARINA &&
-								iX < GAME_MAP_SIZE &&
-								iY < GAME_MAP_SIZE &&
-								dwMapXBIT[iX][iY].b.iPowered != 0 &&
-								!(unsigned __int16)Game_RandomWordLFSRMod4()) {
-								if ((__int16)dwTileCount[TILE_INFRASTRUCTURE_MARINA] / 9 > wSailingBoats)
-									Game_SpawnSailBoat(iX, iY);
-							}
-							else if ((__int16)iAttributes >= TILE_ARCOLOGY_PLYMOUTH &&
-								(__int16)iAttributes <= TILE_ARCOLOGY_LAUNCH &&
-								(*(BYTE *)&dwMapXZON[iX][iY].b & 0xF0) == 0x80) {
-								__int16 iTempTileID = (__int16)iAttributes;
-								P_LOBYTE(iAttributes) = dwMapXTXT[iX][iY].bTextOverlay;
-								iAttributes &= 0xFFFF00FF;
-								if ((__int16)iAttributes >= 51 &&
-									(__int16)iAttributes < 201 &&
-									pMicrosimArr[(__int16)iAttributes - 51].bTileID >= 251 &&
-									pMicrosimArr[(__int16)iAttributes - 51].bTileID != 255) {
-									P_LOWORD(iAttributes) = iAttributes - 51;
-									iMapValPerhaps = (*(BYTE *)&dwMapXVAL[iX >> 1][iY >> 1].bBlock >> 5)
-										- (*(BYTE *)&dwMapXCRM[iX >> 1][iY >> 1].bBlock >> 5)
-										- (*(BYTE *)&dwMapXPLT[iX >> 1][iY >> 1].bBlock >> 5)
-										+ 12;
-									if (iX >= GAME_MAP_SIZE ||
-										iY >= GAME_MAP_SIZE ||
-										dwMapXBIT[iX][iY].b.iPowered == 0)
-										iMapValPerhaps /= 2;
-									if (iX >= GAME_MAP_SIZE ||
-										iY >= GAME_MAP_SIZE ||
-										dwMapXBIT[iX][iY].b.iWatered == 0)
-										iMapValPerhaps /= 2;
-									if (iMapValPerhaps < 0)
-										iMapValPerhaps = 0;
-									if (iMapValPerhaps > 12)
-										P_LOBYTE(iMapValPerhaps) = 12;
-									//ConsoleLog(LOG_DEBUG, "DBG: SimulationGrowthTick(%d, %d) - iMapValPerhaps(%d), (BYTE)iMapValPerhaps(%u), Item(%s)\n", iStep, iSubStep, iMapValPerhaps, (BYTE)iMapValPerhaps, szTileNames[iTempTileID]);
-									pMicrosimArr[(__int16)iAttributes].bMicrosimData[0] = (BYTE)iMapValPerhaps;
-								}
-							}
-						}
-					}
-				}
-				else if ((__int16)iAttributes >= TILE_SUSPENSION_BRIDGE_START_B && (__int16)iAttributes < TILE_ONRAMP_TL ||
-					(WORD)iAttributes == TILE_REINFORCED_BRIDGE_PYLON ||
-					(WORD)iAttributes == TILE_REINFORCED_BRIDGE) {
-					iFundingPercent = pBudgetArr[BUDGET_BRIDGE].iFundingPercent;
-					// Transportation budget, bridges - if below 100% and the weather isn't favourable, there's a chance of destruction.
-					if (iFundingPercent != 100 && (int)((unsigned __int8)bWeatherWind + (unsigned __int16)rand() % 50u) >= iFundingPercent) {
-						//ConsoleLog(LOG_DEBUG, "DBG: SimulationGrowthTick(%d, %d) - Bridge. Weather Vulnerable\n", iStep, iSubStep);
-						Game_CenterOnTileCoords(iX, iY);
-						Game_DestroyStructure(pThis, iX, iY, 1);
-						Game_NewspaperStoryGenerator(39, 0);
-						goto GOAFTERSETXBIT;
-					}
-				}
-				else if ((__int16)iAttributes < TILE_TUNNEL_T || (__int16)iAttributes >= TILE_CROSSOVER_POWERTB_ROADLR) {
-					if (((__int16)iAttributes < TILE_HIGHWAY_HTB || (__int16)iAttributes >= TILE_SUBTORAIL_T) &&
-						((__int16)iAttributes < TILE_HIGHWAY_LR || (__int16)iAttributes >= TILE_SUSPENSION_BRIDGE_START_B))
-						goto GOAFTERSETXBIT;
-					if ((iX & 1) == 0 && (iY & 1) == 0) {
-						iFundingPercent = pBudgetArr[BUDGET_HIGHWAY].iFundingPercent;
-						if (iFundingPercent != 100 && (unsigned __int16)((unsigned __int16)rand() % 100u) >= iFundingPercent) {
-							if (iX < GAME_MAP_SIZE &&
-								iY < GAME_MAP_SIZE &&
-								dwMapXBIT[iX][iY].b.iWater != 0) {
-								//ConsoleLog(LOG_DEBUG, "DBG: SimulationGrowthTick(%d, %d) - Transit #1. Item(%s)\n", iStep, iSubStep, szTileNames[(__int16)iAttributes]);
-								Game_PlaceTileWithMilitaryCheck(iX, iY, 0);
-							}
-							else {
-								iReplaceTile = (rand() & 3) + 1;
-								//ConsoleLog(LOG_DEBUG, "DBG: SimulationGrowthTick(%d, %d) - Transit #1 (else). iRandSelect(%d). Item(%s)\n", iStep, iSubStep, iRandSelect, szTileNames[(__int16)iAttributes]);
-								Game_PlaceTileWithMilitaryCheck(iX, iY, iReplaceTile);
-							}
-							iNextX = iX + 1;
-							if ((iX + 1) >= 0 &&
-								iNextX < GAME_MAP_SIZE &&
-								iY < GAME_MAP_SIZE &&
-								dwMapXBIT[iNextX][iY].b.iWater != 0) {
-								//ConsoleLog(LOG_DEBUG, "DBG: SimulationGrowthTick(%d, %d) - Transit #2. Item(%s)\n", iStep, iSubStep, szTileNames[(__int16)iAttributes]);
-								Game_PlaceTileWithMilitaryCheck(iX + 1, iY, 0);
-							}
-							else {
-								iReplaceTile = (rand() & 3) + 1;
-								//ConsoleLog(LOG_DEBUG, "DBG: SimulationGrowthTick(%d, %d) - Transit #2 (else). iRandSelect(%d). Item(%s)\n", iStep, iSubStep, iRandSelect, szTileNames[(__int16)iAttributes]);
-								Game_PlaceTileWithMilitaryCheck(iX + 1, iY, iReplaceTile);
-							}
-							iNextY = iY + 1;
-							if (iX < GAME_MAP_SIZE &&
-								(iY + 1) >= 0 &&
-								iNextY < GAME_MAP_SIZE &&
-								dwMapXBIT[iX][iNextY].b.iWater != 0) {
-								//ConsoleLog(LOG_DEBUG, "DBG: SimulationGrowthTick(%d, %d) - Transit #3. Item(%s)\n", iStep, iSubStep, szTileNames[(__int16)iAttributes]);
-								Game_PlaceTileWithMilitaryCheck(iX, iY + 1, 0);
-							}
-							else {
-								iReplaceTile = (rand() & 3) + 1;
-								//ConsoleLog(LOG_DEBUG, "DBG: SimulationGrowthTick(%d, %d) - Transit #3 (else). iRandSelect(%d). Item(%s)\n", iStep, iSubStep, iRandSelect, szTileNames[(__int16)iAttributes]);
-								Game_PlaceTileWithMilitaryCheck(iX, iY + 1, iReplaceTile);
-							}
-							if ((iX + 1) < GAME_MAP_SIZE &&
-								(iY + 1) < GAME_MAP_SIZE &&
-								dwMapXBIT[(iX + 1)][(iY + 1)].b.iWater != 0) {
-								//ConsoleLog(LOG_DEBUG, "DBG: SimulationGrowthTick(%d, %d) - Transit #4. Item(%s)\n", iStep, iSubStep, szTileNames[(__int16)iAttributes]);
-								Game_PlaceTileWithMilitaryCheck(iX + 1, iY + 1, 0);
-							}
-							else {
-								iReplaceTile = (rand() & 3) + 1;
-								//ConsoleLog(LOG_DEBUG, "DBG: SimulationGrowthTick(%d, %d) - Transit #4 (else). iRandSelect(%d). Item(%s)\n", iStep, iSubStep, iRandSelect, szTileNames[(__int16)iAttributes]);
-								Game_PlaceTileWithMilitaryCheck(iX + 1, iY + 1, iReplaceTile);
-							}
-							goto GOAFTERSETXBIT;
-						}
-					}
-				}
-				else if ((__int16)iAttributes >= TILE_TUNNEL_T && (__int16)iAttributes <= TILE_TUNNEL_L) {
-					iFundingPercent = pBudgetArr[BUDGET_TUNNEL].iFundingPercent;
-					if (iFundingPercent != 100 && (unsigned __int16)((unsigned __int16)rand() % 100u) >= iFundingPercent) {
-						//ConsoleLog(LOG_DEBUG, "DBG: SimulationGrowthTick(%d, %d) - Tunnel. Item(%s)\n", iStep, iSubStep, szTileNames[(__int16)iAttributes]);
-						Game_CenterOnTileCoords(iX, iY);
-						Game_DestroyStructure(pThis, iX, iY, 1);
-						goto GOAFTERSETXBIT;
-					}
-				}
-			}
-GOUNDCHECKTHENYINCREASE:
-			if (!(unsigned __int16)Game_RandomWordLFSRMod128()) {
-				P_LOBYTE(iAttributes) = dwMapXUND[iX][iY].iTileID;
-				iAttributes &= 0xFFFF00FF;
-				if ((__int16)iAttributes >= TILE_RUBBLE1 && (__int16)iAttributes < TILE_POWERLINES_HTB ||
-					(WORD)iAttributes == TILE_ROAD_BR ||
-					(WORD)iAttributes == TILE_ROAD_HTB ||
-					(WORD)iAttributes == TILE_ROAD_LHR) {
-					iFundingPercent = pBudgetArr[BUDGET_SUBWAY].iFundingPercent;
-					if (iFundingPercent != 100 && (unsigned __int16)((unsigned __int16)rand() % 100u) >= iFundingPercent) {
-						//ConsoleLog(LOG_DEBUG, "DBG: SimulationGrowthTick(%d, %d) - Subway. Item(%s) / Underground Item(%s)\n", iStep, iSubStep, szTileNames[(__int16)iAttributes], ((__int16)iAttributes > 35) ? "** Unknown **" : szUndergroundNames[(__int16)iAttributes]);
-						if ((WORD)iAttributes == TILE_ROAD_BR)
-							Game_DestroyStructure(pThis, iX, iY, 0);
-						else {
-							if ((WORD)iAttributes == TILE_ROAD_HTB)
-								iReplaceTile = UNDER_TILE_PIPES_TB;
-							else if ((WORD)iAttributes == TILE_ROAD_LHR)
-								iReplaceTile = UNDER_TILE_PIPES_LR;
-							else
-								iReplaceTile = UNDER_TILE_CLEAR;
-							Game_PlaceUndergroundTiles(iX, iY, iReplaceTile);
-						}
-						// There's no 'goto' in this case.
-					}
-				}
-			}
-			iY += 4;
-		}
-		iX += 4;
-		iResult = iX / 2;
-		iXMM = iX / 2;
-	}
-	rcDst.top = -1000;
-	return iResult;
-#else
-	int(__cdecl *H_SimulationGrowthTick)(signed __int16, signed __int16) = (int(__cdecl *)(signed __int16, signed __int16))0x4358B0;
-
-	int ret = H_SimulationGrowthTick(iStep, iSubStep);
-	//ConsoleLog(LOG_DEBUG, "DBG: 0x%06X -> SimulationGrowthTick(%d, %d) = %d\n", _ReturnAddress(), iStep, iSubStep, ret);
-
-	return ret;
-#endif
-}
-
-extern "C" int __cdecl Hook_SimulationGrowSpecificZone(__int16 iX, __int16 iY, __int16 iTileID, __int16 iZoneType) {
-	// Variable names subject to change
-	// during the demystification process.
-	__int16 x, y;
-	__int16 iCurrX, iCurrY;
-	__int16 iNextX, iNextY;
-	__int16 iBuildingCount[2];
-	__int16 iMoveX, iMoveY;
-	__int16 iRotate;
-	__int16 iTileRotated;
-	int i;
-	__int16 iLengthWays;
-	__int16 iDepthWays;
-	__int16 iPierPathTileCount;
-	__int16 iPierLength;
-	map_XBIT_t *mXBIT;
-	BYTE mXBBits;
-	map_XBLD_t *mXBLDOne, *mXBLDTwo;
-	BYTE mXBuilding[4];
-	map_XZON_t *mXZONOne, *mXZONTwo;
-	BYTE *pZone;
-
-	x = iX;
-	y = iY;
-	if (iZoneType != ZONE_MILITARY)
-		if (!Game_IsZonedTilePowered(iX, iY))
-			return 0;
-	
-	switch (iTileID) {
-		case TILE_INFRASTRUCTURE_RUNWAY:
-			iMoveX = 0;
-			iMoveY = 0;
-			if ((dwTileCount[TILE_INFRASTRUCTURE_RUNWAY] & 1) == 0) {
-				if ((x & 1) != 0) {
-					iMoveX = 1;
-					goto PROCEEDFURTHER;
-				}
-				if ((y & 1) == 0)
-					return 0;
-
-				goto PROCEEDAHEAD;
-			}
-			if ((y & 1) != 0) {
-PROCEEDAHEAD:
-				iMoveY = 1;
-				goto PROCEEDFURTHER;
-			}
-			if ((x & 1) == 0)
-				return 0;
-			
-			iMoveX = 1;
-PROCEEDFURTHER:
-			iCurrX = x;
-			iCurrY = y;
-			iBuildingCount[0] = 0;
-			while (iCurrX < GAME_MAP_SIZE && iCurrY < GAME_MAP_SIZE) {
-				if (dwMapXZON[iCurrX][iCurrY].b.iZoneType != iZoneType)
-					return 0;
-				mXBuilding[0] = dwMapXBLD[iCurrX][iCurrY].iTileID;
-				if (iZoneType == ZONE_MILITARY) {
-					if ((mXBuilding[0] >= TILE_ROAD_LR && mXBuilding[0] <= TILE_ROAD_LTBR) ||
-						mXBuilding[0] == TILE_INFRASTRUCTURE_CRANE || mXBuilding[0] == TILE_MILITARY_MISSILESILO)
-						return 0;
-					if (dwMapXTER[iCurrX][iCurrY].iTileID)
-						return 0;
-					if (dwMapXUND[iCurrX][iCurrY].iTileID)
-						return 0;
-				}
-				if (mXBuilding[0] == TILE_INFRASTRUCTURE_RUNWAY || mXBuilding[0] == TILE_INFRASTRUCTURE_RUNWAYCROSS)
-					--iBuildingCount[0];
-				iCurrX += iMoveY;
-				++iBuildingCount[0];
-				iCurrY += iMoveX;
-				if (iBuildingCount[0] >= 5) {
-					if (!iMoveY) 
-						goto SKIPFIRSTROTATIONCHECK;
-					if ((wViewRotation & 1) != 0) {
-						if (!iMoveY) {
-SKIPFIRSTROTATIONCHECK:
-							if ((wViewRotation & 1) != 0)
-								goto SKIPSECONDROTATIONCHECK;
-						}
-						iRotate = 0;
-					}
-					else {
-SKIPSECONDROTATIONCHECK:
-						iRotate = 1;
-					}
-					iBuildingCount[1] = 0;
-					while (2) {
-						mXBuilding[1] = dwMapXBLD[x][y].iTileID;
-						if (mXBuilding[1] == TILE_INFRASTRUCTURE_RUNWAY || mXBuilding[1] == TILE_INFRASTRUCTURE_RUNWAYCROSS) {
-							--iBuildingCount[1];
-							if (mXBuilding[1] == TILE_INFRASTRUCTURE_RUNWAY) {
-								iTileRotated = x < GAME_MAP_SIZE &&
-									y < GAME_MAP_SIZE &&
-									dwMapXBIT[x][y].b.iRotated;
-								if (iTileRotated != iRotate) {
-									Game_PlaceTileWithMilitaryCheck(x, y, TILE_INFRASTRUCTURE_RUNWAYCROSS);
-									if (x < GAME_MAP_SIZE && y < GAME_MAP_SIZE)
-										*(BYTE *)&dwMapXZON[x][y].b |= 0xF0u;
-									if (iZoneType != ZONE_MILITARY) {
-										if (x <= -1)
-											goto RUNWAY_GETOUT;
-										if (x < GAME_MAP_SIZE && y < GAME_MAP_SIZE)
-											*(BYTE *)&dwMapXBIT[x][y].b |= 0xC0u;
-									}
-									if (x < GAME_MAP_SIZE && y < GAME_MAP_SIZE) {
-										mXBIT = dwMapXBIT[x];
-										mXBBits = (*(BYTE *)&mXBIT[y].b & 0xFD);
-RUNWAY_GOBACK:
-										*(BYTE *)&mXBIT[y].b = mXBBits;
-									}
-								}
-							}
-						}
-						else {
-							if (iZoneType == ZONE_MILITARY) {
-								if ((mXBuilding[1] >= TILE_ROAD_LR && mXBuilding[1] <= TILE_ROAD_LTBR) ||
-									mXBuilding[1] == TILE_INFRASTRUCTURE_CRANE || mXBuilding[1] == TILE_MILITARY_MISSILESILO)
-									return 0;
-								if (dwMapXTER[x][y].iTileID)
-									return 0;
-								if (dwMapXUND[x][y].iTileID)
-									return 0;
-							}
-							if (dwMapXBLD[x][y].iTileID >= TILE_SMALLPARK)
-								Game_ZonedBuildingTileDeletion(x, y);
-							Game_PlaceTileWithMilitaryCheck(x, y, TILE_INFRASTRUCTURE_RUNWAY);
-							if (x < GAME_MAP_SIZE && y < GAME_MAP_SIZE)
-								*(BYTE *)&dwMapXZON[x][y].b |= 0xF0u;
-							if (iZoneType != ZONE_MILITARY && x < GAME_MAP_SIZE && y < GAME_MAP_SIZE)
-								*(BYTE *)&dwMapXBIT[x][y].b |= 0xC0u;
-							if (iRotate && x < GAME_MAP_SIZE && y < GAME_MAP_SIZE) {
-								mXBIT = dwMapXBIT[x];
-								mXBBits = (*(BYTE *)&mXBIT[y].b | 2);
-								goto RUNWAY_GOBACK;
-							}
-						}
-RUNWAY_GETOUT:
-						x += iMoveY;
-						y += iMoveX;
-						if (++iBuildingCount[1] >= 5)
-							return 1;
-						continue;
-					}
-				}
-			}
-			return 1;
-		case TILE_INFRASTRUCTURE_CRANE:
-			for (i = 0; i < 4; i++) {
-				iLengthWays = x + wSomePierLengthWays[i];
-				if (iLengthWays < GAME_MAP_SIZE) {
-					iDepthWays = y + wSomePierDepthWays[i];
-					if (iDepthWays < GAME_MAP_SIZE && dwMapXBIT[iLengthWays][iDepthWays].b.iWater != 0)
-						break;
-				}
-			}
-			if (i == 4)
-				return 0;
-			iDepthWays = wSomePierDepthWays[i];
-			if (iDepthWays && (x & 1) != 0)
-				return 0;
-			iLengthWays = wSomePierLengthWays[i];
-			if (iLengthWays && (y & 1) != 0)
-				return 0;
-			iPierPathTileCount = 0;
-			iNextX = x;
-			iNextY = y;
-			do {
-				iNextX += iLengthWays;
-				iNextY += iDepthWays;
-				if (iNextX >= GAME_MAP_SIZE || iNextY >= GAME_MAP_SIZE)
-					return 0;
-				if (iNextX >= GAME_MAP_SIZE ||
-					iNextY >= GAME_MAP_SIZE ||
-					dwMapXBIT[iNextX][iNextY].b.iWater == 0)
-					return 0;
-				if (dwMapXBLD[iNextX][iNextY].iTileID)
-					return 0;
-				++iPierPathTileCount;
-			} while (iPierPathTileCount < 5);
-			if ((*(WORD *)&dwMapALTM[iNextX][iNextY].w & 0x3E0) >> 5 < (*(WORD *)&dwMapALTM[iNextX][iNextY].w & 0x1F) + 2)
-				return 0;
-			if (dwMapXBLD[x][y].iTileID >= TILE_SMALLPARK)
-				Game_ZonedBuildingTileDeletion(x, y);
-			Game_ItemPlacementCheck(x, y, TILE_INFRASTRUCTURE_CRANE, 1);
-			if (x < GAME_MAP_SIZE && y < GAME_MAP_SIZE) {
-				pZone = (BYTE *)&dwMapXZON[x][y].b;
-				*pZone ^= (*pZone ^ iZoneType) & 0xF;
-			}
-			if (iZoneType == ZONE_MILITARY && x < GAME_MAP_SIZE && y < GAME_MAP_SIZE)
-				*(BYTE *)&dwMapXBIT[x][y].b &= 0xFu;
-			iLengthWays = wSomePierLengthWays[i];
-			if (!iLengthWays)
-				goto PIER_GOTOONE;
-			if ((wViewRotation & 1) == 0)
-				goto PIER_GOTOTWO;
-			if (iLengthWays)
-				goto PIER_GOTOTHREE;
-PIER_GOTOONE:
-			if ((wViewRotation & 1) != 0) {
-PIER_GOTOTWO:
-				iRotate = 1;
-			}
-			else {
-PIER_GOTOTHREE:
-				iRotate = 0;
-			}
-			iPierLength = 4;
-			do {
-				x += wSomePierLengthWays[i];
-				y += wSomePierDepthWays[i];
-				Game_PlaceTileWithMilitaryCheck(x, y, TILE_INFRASTRUCTURE_PIER);
-				if (x < GAME_MAP_SIZE && y < GAME_MAP_SIZE)
-					*(BYTE *)&dwMapXZON[x][y].b |= 0xF0u;
-				if (iRotate) {
-					if (x < GAME_MAP_SIZE && y < GAME_MAP_SIZE)
-						*(BYTE *)&dwMapXBIT[x][y].b |= 2u;
-				}
-				--iPierLength;
-			} while (iPierLength);
-			return 1;
-		case TILE_INFRASTRUCTURE_CONTROLTOWER_CIV:
-		case TILE_MILITARY_CONTROLTOWER:
-		case TILE_MILITARY_WAREHOUSE:
-		case TILE_INFRASTRUCTURE_BUILDING1:
-		case TILE_INFRASTRUCTURE_BUILDING2:
-		case TILE_MILITARY_TARMAC:
-		case TILE_MILITARY_F15B:
-		case TILE_MILITARY_HANGAR1:
-		case TILE_MILITARY_RADAR:
-			if (dwMapXBLD[x][y].iTileID < TILE_SMALLPARK) {
-				Game_ItemPlacementCheck(x, y, iTileID, 1);
-				if (x < GAME_MAP_SIZE && y < GAME_MAP_SIZE)
-					*(BYTE *)&dwMapXZON[x][y].b ^= (*(BYTE *)&dwMapXZON[x][y].b ^ iZoneType) & 0xF;
-				if (iZoneType == ZONE_MILITARY && x < GAME_MAP_SIZE && y < GAME_MAP_SIZE)
-					*(BYTE *)&dwMapXBIT[x][y].b &= 0xFu;
-			}
-			return 1;
-		case TILE_INFRASTRUCTURE_PARKINGLOT:
-		case TILE_MILITARY_PARKINGLOT:
-		case TILE_MILITARY_LOADINGBAY:
-		case TILE_MILITARY_TOPSECRET:
-		case TILE_INFRASTRUCTURE_CARGOYARD:
-		case TILE_INFRASTRUCTURE_HANGAR2:
-			signed __int16 iSX;
-			iSX = x & 0xFFFE; // If absent you will get bizarre overlap cases (this could be a part of the 0x402603 function investigation).
-			P_LOBYTE(y) = y & 0xFE; // If absent you will get bizarre overlap cases (this could be a part of the 0x402603 function investigation).
-			iNextX = (__int16)(iSX + 1);
-			iNextY = (__int16)(y + 1);
-			mXBLDOne = dwMapXBLD[iSX];
-			mXBuilding[0] = mXBLDOne[y].iTileID;
-			if (mXBuilding[0] >= TILE_INFRASTRUCTURE_WATERTOWER)
-				return 0;
-			if (mXBuilding[0] == TILE_INFRASTRUCTURE_RUNWAY || mXBuilding[0] == TILE_INFRASTRUCTURE_RUNWAYCROSS ||
-				mXBuilding[0] == TILE_INFRASTRUCTURE_CRANE || mXBuilding[0] == TILE_MILITARY_MISSILESILO)
-				return 0;
-			mXBLDTwo = dwMapXBLD[iNextX];
-			mXBuilding[1] = mXBLDTwo[y].iTileID;
-			if (mXBuilding[1] == TILE_INFRASTRUCTURE_RUNWAY || mXBuilding[1] == TILE_INFRASTRUCTURE_RUNWAYCROSS ||
-				mXBuilding[1] == TILE_INFRASTRUCTURE_CRANE || mXBuilding[1] == TILE_MILITARY_MISSILESILO)
-				return 0;
-			mXBuilding[2] = mXBLDOne[iNextY].iTileID;
-			if (mXBuilding[2] == TILE_INFRASTRUCTURE_RUNWAY || mXBuilding[2] == TILE_INFRASTRUCTURE_RUNWAYCROSS ||
-				mXBuilding[2] == TILE_INFRASTRUCTURE_CRANE || mXBuilding[2] == TILE_MILITARY_MISSILESILO)
-				return 0;
-			mXBuilding[3] = mXBLDTwo[iNextY].iTileID;
-			if (mXBuilding[3] == TILE_INFRASTRUCTURE_RUNWAY || mXBuilding[3] == TILE_INFRASTRUCTURE_RUNWAYCROSS ||
-				mXBuilding[3] == TILE_INFRASTRUCTURE_CRANE || mXBuilding[3] == TILE_MILITARY_MISSILESILO)
-				return 0;
-			mXZONOne = dwMapXZON[iSX];
-			if (mXZONOne[y].b.iZoneType != iZoneType)
-				return 0;
-			if (iZoneType == ZONE_MILITARY) {
-				if (mXZONOne[y].b.iZoneType == ZONE_MILITARY) {
-					if (mXBuilding[0] >= TILE_ROAD_LR && mXBuilding[0] <= TILE_ROAD_LTBR)
-						return 0;
-				}
-				if (dwMapXUND[iSX][y].iTileID)
-					return 0;
-			}
-			mXZONTwo = dwMapXZON[iNextX];
-			if (mXZONTwo[y].b.iZoneType != iZoneType)
-				return 0;
-			if (iZoneType == ZONE_MILITARY) {
-				if (mXZONTwo[y].b.iZoneType == ZONE_MILITARY) {
-					if (mXBuilding[1] >= TILE_ROAD_LR && mXBuilding[1] <= TILE_ROAD_LTBR)
-						return 0;
-				}
-				if (dwMapXUND[iNextX][y].iTileID)
-					return 0;
-			}
-			if (mXZONOne[iNextY].b.iZoneType != iZoneType)
-				return 0;
-			if (iZoneType == ZONE_MILITARY) {
-				if (mXZONOne[iNextY].b.iZoneType == ZONE_MILITARY) {
-					if (mXBuilding[2] >= TILE_ROAD_LR && mXBuilding[2] <= TILE_ROAD_LTBR)
-						return 0;
-				}
-				if (dwMapXUND[iSX][iNextY].iTileID)
-					return 0;
-			}
-			if (mXZONTwo[iNextY].b.iZoneType != iZoneType)
-				return 0;
-			if (iZoneType == ZONE_MILITARY) {
-				if (mXZONTwo[iNextY].b.iZoneType == ZONE_MILITARY) {
-					if (mXBuilding[3] >= TILE_ROAD_LR && mXBuilding[3] <= TILE_ROAD_LTBR)
-						return 0;
-				}
-				if (dwMapXUND[iNextX][iNextY].iTileID)
-					return 0;
-			}
-			if (mXBuilding[0] >= TILE_SMALLPARK)
-				Game_ZonedBuildingTileDeletion(iSX, y);
-			if (dwMapXBLD[iNextX][y].iTileID >= TILE_SMALLPARK)
-				Game_ZonedBuildingTileDeletion(iNextX, y);
-			if (dwMapXBLD[iSX][iNextY].iTileID >= TILE_SMALLPARK)
-				Game_ZonedBuildingTileDeletion(iSX, iNextY);
-			if (dwMapXBLD[iNextX][iNextY].iTileID >= TILE_SMALLPARK)
-				Game_ZonedBuildingTileDeletion(iNextX, iNextY);
-			Game_ItemPlacementCheck(iSX, y, iTileID, 2);
-			if (iSX < GAME_MAP_SIZE && y < GAME_MAP_SIZE)
-				*(BYTE *)&dwMapXZON[iSX][y].b ^= (*(BYTE *)&dwMapXZON[iSX][y].b ^ iZoneType) & 0xF;
-			if (iNextX < GAME_MAP_SIZE && y < GAME_MAP_SIZE)
-				*(BYTE *)&dwMapXZON[iNextX][y].b ^= (*(BYTE *)&dwMapXZON[iNextX][y].b ^ iZoneType) & 0xF;
-			if (iSX < GAME_MAP_SIZE && iNextY < GAME_MAP_SIZE)
-				*(BYTE *)&dwMapXZON[iSX][iNextY].b ^= (*(BYTE *)&dwMapXZON[iSX][iNextY].b ^ iZoneType) & 0xF;
-			if (iNextX < GAME_MAP_SIZE && iNextY < GAME_MAP_SIZE)
-				*(BYTE *)&dwMapXZON[iNextX][iNextY].b ^= (*(BYTE *)&dwMapXZON[iNextX][iNextY].b ^ iZoneType) & 0xF;
-			if (iZoneType == ZONE_MILITARY) {
-				if (iSX < GAME_MAP_SIZE && y < GAME_MAP_SIZE)
-					*(BYTE *)&dwMapXBIT[iSX][y].b &= 0xFu;
-				if (iNextX < GAME_MAP_SIZE && y < GAME_MAP_SIZE)
-					*(BYTE *)&dwMapXBIT[iNextX][y].b &= 0xFu;
-				if (iSX < GAME_MAP_SIZE && iNextY < GAME_MAP_SIZE)
-					*(BYTE *)&dwMapXBIT[iSX][iNextY].b &= 0xFu;
-				if (iNextX < GAME_MAP_SIZE && iNextY < GAME_MAP_SIZE)
-					*(BYTE *)&dwMapXBIT[iNextX][iNextY].b &= 0xFu;
-			}
-			return 1;
-		case TILE_MILITARY_MISSILESILO:
-			PlaceMissileSilo(x, y);
-			return 1;
-		default:
-			return 1;
-	}
-}
-
-extern "C" int __cdecl Hook_ItemPlacementCheck(unsigned __int16 m_x, int m_y, __int16 iTileID, __int16 iTileArea) {
-	__int16 x;
-	__int16 y;
-	__int16 iArea;
-	__int16 iMarinaCount;
-	__int16 iX;
-	__int16 iY;
-	__int16 iTile;
-	BYTE iBuilding;
-	__int16 iItemWidth;
-	__int16 iItemLength;
-	__int16 iItemDepth;
-	__int16 iMapBit;
-	__int16 iCorner[3];
-	char cMSimBit;
-
-	x = (__int16)m_x;
-	y = P_LOWORD(m_y);
-
-	iArea = iTileArea - 1;
-	if (iArea > 1) {
-		--x;
-		--y;
-	}
-	iMarinaCount = 0;
-	iX = x;
-	iItemWidth = x + iArea;
-	if (iItemWidth >= x) {
-		iTile = iTileID;
-		iItemLength = iArea + y;
-		while (1) {
-			iY = y;
-			if (iItemLength >= y)
-				break;
-		GOBACK:
-			if (++iX > iItemWidth)
-				goto GOFORWARD;
-		}
-		while (1) {
-			if (iArea <= 0) {
-				if (iX >= GAME_MAP_SIZE || iY >= GAME_MAP_SIZE)
-					return 0;
-			}
-			else if (iX < 1 || iY < 1 || iX > GAME_MAP_SIZE-2 || iY > GAME_MAP_SIZE-2) {
-				// Added this due to legacy military plot drops, this allows > 1x1 type buildings
-				// to develop if the plot is on the edge of the map.
-				if (dwMapXZON[iX][iY].b.iZoneType == ZONE_MILITARY) {
-					if (iX < 0 || iY < 0 || iX > GAME_MAP_SIZE - 1 || iY > GAME_MAP_SIZE - 1) {
-						return 0;
-					}
-				}
-				else {
-					return 0;
-				}
-			}
-
-			iBuilding = dwMapXBLD[iX][iY].iTileID;
-			if (iBuilding >= TILE_ROAD_LR)
-				return 0;
-			
-			if (iBuilding == TILE_RADIOACTIVITY)
-				return 0;
-			
-			if (iBuilding == TILE_SMALLPARK)
-				return 0;
-			
-			if (dwMapXZON[iX][iY].b.iZoneType == ZONE_MILITARY) {
-				if (iBuilding == TILE_INFRASTRUCTURE_RUNWAYCROSS ||
-					iBuilding == TILE_ROAD_LR ||
-					iBuilding == TILE_ROAD_TB)
-					return 0;
-			}
-
-			if (iTileID == TILE_INFRASTRUCTURE_MARINA) {
-				if (iX < GAME_MAP_SIZE &&
-					iY < GAME_MAP_SIZE &&
-					dwMapXBIT[iX][iY].b.iWater != 0) {
-					++iMarinaCount;
-					goto GOSKIP;
-				}
-				if (dwMapXTER[iX][iY].iTileID) {
-					return 0;
-				}
-			}
-
-			if (dwMapXTER[iX][iY].iTileID)
-				return 0;
-			
-			if (iX < GAME_MAP_SIZE &&
-				iY < GAME_MAP_SIZE &&
-				dwMapXBIT[iX][iY].b.iWater != 0) {
-				return 0;
-			}
-
-		GOSKIP:
-			if (++iY > iItemLength)
-				goto GOBACK;
-			
-		}
-	}
-
-	iTile = iTileID;
-
-GOFORWARD:
-	if (iTile == TILE_INFRASTRUCTURE_MARINA && (!iMarinaCount || iMarinaCount == 9)) {
-		Game_AfxMessageBoxID(107, 0, -1);
-		return 0;
-	}
-	else {
-		if (iTile == TILE_SERVICES_BIGPARK || (iMapBit = -32, iTile == TILE_SMALLPARK)) { // The initial setting of iMapBit to -32 isn't present in the DOS version.
-			iMapBit = 32;
-		}
-		else {
-			iMapBit = 224; // Present in the DOS version.
-		}
-		if (iTile == TILE_SMALLPARK && dwMapXBLD[x][y].iTileID > TILE_SMALLPARK) {
-			return 0;
-		}
-		else {
-			__int16 iCurrXPos = x;
-			cMSimBit = Game_SimulationProvisionMicrosim(x, y, iTile); // The 'y' variable is '__int16' whereas that argument is an 'int' (it was previously the latter), noting just in case.
-			if (iItemWidth >= x) {
-				iItemDepth = y + iArea;
-				do {
-					for (__int16 iCurrYPos = y; iCurrYPos <= iItemDepth; ++iCurrYPos) {
-						if (iCurrXPos > -1) {
-							if (iCurrXPos < GAME_MAP_SIZE && iCurrYPos < GAME_MAP_SIZE) {
-								*(BYTE *)&dwMapXBIT[iCurrXPos][iCurrYPos].b &= 0x1Fu;
-							}
-							if (iCurrXPos < GAME_MAP_SIZE && iCurrYPos < GAME_MAP_SIZE) {
-								*(BYTE *)&dwMapXBIT[iCurrXPos][iCurrYPos].b |= iMapBit;
-							}
-						}
-						Game_PlaceTileWithMilitaryCheck(iCurrXPos, iCurrYPos, iTile);
-						if (iCurrXPos > -1) {
-							if (iCurrXPos < GAME_MAP_SIZE && iCurrYPos < GAME_MAP_SIZE) {
-								*(BYTE *)&dwMapXZON[iCurrXPos][iCurrYPos].b &= 0xF0u;
-							}
-							if (iCurrXPos < GAME_MAP_SIZE && iCurrYPos < GAME_MAP_SIZE) {
-								*(BYTE *)&dwMapXZON[iCurrXPos][iCurrYPos].b &= 0xFu;
-							}
-						}
-						if (cMSimBit) {
-							*(BYTE *)&dwMapXTXT[iCurrXPos][iCurrYPos].bTextOverlay = cMSimBit;
-						}
-					}
-					++iCurrXPos;
-				} while (iCurrXPos <= iItemWidth);
-			}
-			if (iArea) {
-				if (x < GAME_MAP_SIZE && y < GAME_MAP_SIZE) {
-					dwMapXZON[x][y].b.iCorners = wTileAreaBottomLeftCorner[4 * wViewRotation] >> 4;
-				}
-				iCorner[0] = iArea + x;
-				if ((iArea + x) > -1 && iCorner[0] < GAME_MAP_SIZE && y < GAME_MAP_SIZE) {
-					dwMapXZON[iCorner[0]][y].b.iCorners = wTileAreaBottomRightCorner[4 * wViewRotation] >> 4;
-				}
-				if (iCorner[0] < GAME_MAP_SIZE) {
-					iCorner[1] = y + iArea;
-					if ((y + iArea) > -1 && iCorner[1] < GAME_MAP_SIZE) {
-						dwMapXZON[iCorner[0]][iCorner[1]].b.iCorners = wTileAreaTopLeftCorner[4 * wViewRotation] >> 4;
-					}
-				}
-				if (x < GAME_MAP_SIZE) {
-					iCorner[2] = iArea + y;
-					if ((iArea + y) > -1 && iCorner[2] < GAME_MAP_SIZE) {
-						dwMapXZON[x][iCorner[2]].b.iCorners = wTileAreaTopRightCorner[4 * wViewRotation] >> 4;
-					}
-				}
-			}
-			else if (x < GAME_MAP_SIZE && y < GAME_MAP_SIZE) {
-				*(BYTE *)&dwMapXZON[x][y].b |= 0xF0u;
-			}
-			Game_SpawnItem(x, y + iArea);
-			return 1;
-		}
-	}
-}
-
-#define NUM_CHEATS 15
-#define NUM_CHEAT_MAXCHARS 9
-
-typedef struct {
-	int iIndex;          // Cheat index, match multiple cheats to the same index.
-	const char *pEntry;  // Code entry
-	int iPos;            // Position within the array. (Only set when there's a match)
-} cheat_t;
-
-enum {
-	CHEAT_FUND,
-	CHEAT_CASS,
-	CHEAT_THEWORKS,
-	CHEAT_MAJORFLOOD,
-	CHEAT_PARTTHESEA,
-	CHEAT_FIRESTORM,
-	CHEAT_DEBUG,
-	CHEAT_MILITARY,
-	CHEAT_JOKE,
-	CHEAT_WEBB,
-	CHEAT_OOPS,
-	CHEAT_REPENT
-};
-
-// Some the codes here have been randomised once more.
-static cheat_t cheatStrArray[NUM_CHEATS] = {
-	{CHEAT_FUND,       "fund",      -1},
-	{CHEAT_CASS,       "cass",      -1},
-	{CHEAT_THEWORKS,   "ithecama",  -1},
-	{CHEAT_MAJORFLOOD, "nhoa",      -1},
-	{CHEAT_PARTTHESEA, "msseo",     -1},
-	{CHEAT_FIRESTORM,  "nwsueheo",  -1},
-	{CHEAT_FIRESTORM,  "mlayrosre", -1},
-	{CHEAT_DEBUG,      "psiclaril", -1},
-	{CHEAT_MILITARY,   "gnarlimit", -1},
-	{CHEAT_JOKE,       "joke",      -1},
-	{CHEAT_WEBB,       "webb",      -1},    // From the Interactive Demo
-	{CHEAT_OOPS,       "damn",      -1},    // DOS
-	{CHEAT_OOPS,       "darn",      -1},    // DOS
-	{CHEAT_OOPS,       "heck",      -1},    // DOS
-	{CHEAT_REPENT,     "mylrosde",  -1}     // Custom
-};
-
-// In the game itself it uses an array of 72 entries
-// (the original 8 cheat entries * 9 potential characters + current position).
-// For the custom version it has been adjusted to a multi-dimensional array.
-static int cheatCharPos[NUM_CHEATS][NUM_CHEAT_MAXCHARS] = {
-	{0,  1,  2,  3, -1, -1, -1, -1, -1},
-	{0,  1,  2,  3, -1, -1, -1, -1, -1},
-	{0,  6,  5,  4,  2,  3,  7,  1, -1},
-	{0,  2,  3,  1, -1, -1, -1, -1, -1},
-	{0,  4,  2,  3,  1, -1, -1, -1, -1},
-	{0,  4,  1,  5,  7,  3,  2,  6, -1},
-	{0,  4,  6,  5,  1,  8,  2,  7,  3},
-	{0,  6,  2,  1,  3,  7,  4,  8,  5},
-	{0,  7,  4,  6,  2,  3,  8,  5,  1},
-	{0,  1,  2,  3, -1, -1, -1, -1, -1},
-	{0,  1,  2,  3, -1, -1, -1, -1, -1},
-	{0,  1,  2,  3, -1, -1, -1, -1, -1},
-	{0,  1,  2,  3, -1, -1, -1, -1, -1},
-	{0,  1,  2,  3, -1, -1, -1, -1, -1},
-	{0,  3,  5,  6,  4,  1,  2,  7, -1}
-};
-
-// This is set if there are multiple cheats detected matching the first character.
-static BOOL cheatMultipleDetections = FALSE;
-
-static void AdjustDebugMenu(HMENU hDebugMenu) {
-	if (hDebugMenu) {
-		AFX_MSGMAP_ENTRY afxMessageMapEntry[5];
-		HMENU hDebugPopup;
-		MENUITEMINFO miiDebugPopup;
-		miiDebugPopup.cbSize = sizeof(MENUITEMINFO);
-		miiDebugPopup.fMask = MIIM_SUBMENU;
-		if (!GetMenuItemInfo(hDebugMenu, 0, TRUE, &miiDebugPopup) && mischook_debug & MISCHOOK_DEBUG_MENU) {
-			ConsoleLog(LOG_DEBUG, "MISC: Debug GetMenuItemInfo failed, error = 0x%08X.\n", GetLastError());
-			return;
-		}
-		hDebugPopup = miiDebugPopup.hSubMenu;
-
-		// Insert in reverse order.
-		// Separator between the disasters and internal debugging functions.
-		if (!InsertMenu(hDebugPopup, 11, MF_BYPOSITION|MF_SEPARATOR, NULL, NULL) && mischook_debug & MISCHOOK_DEBUG_MENU) {
-			ConsoleLog(LOG_DEBUG, "MISC: Debug InsertMenuA #1 failed, error = 0x%08X.\n", GetLastError());
-			return;
-		}
-		// Separator between grants and disasters
-		if (!InsertMenu(hDebugPopup, 4, MF_BYPOSITION|MF_SEPARATOR, NULL, NULL) && mischook_debug & MISCHOOK_DEBUG_MENU) {
-			ConsoleLog(LOG_DEBUG, "MISC: Debug InsertMenuA #2 failed, error = 0x%08X.\n", GetLastError());
-			return;
-		}
-		// Separator between the version option and grants
-		if (!InsertMenu(hDebugPopup, 1, MF_BYPOSITION|MF_SEPARATOR, NULL, NULL) && mischook_debug & MISCHOOK_DEBUG_MENU) {
-			ConsoleLog(LOG_DEBUG, "MISC: Debug InsertMenuA #3 failed, error = 0x%08X.\n", GetLastError());
-			return;
-		}
-
-		// Insert in reverse order.
-		if (!InsertMenu(hDebugPopup, 5, MF_BYPOSITION|MF_STRING, IDM_DEBUG_MILITARY_MISSILESILOS, "Propose Missile Silos") && mischook_debug & MISCHOOK_DEBUG_MENU) {
-			ConsoleLog(LOG_DEBUG, "MISC: Debug InsertMenuA #4 failed, error = 0x%08X.\n", GetLastError());
-			return;
-		}
-		if (!InsertMenu(hDebugPopup, 5, MF_BYPOSITION|MF_STRING, IDM_DEBUG_MILITARY_NAVALYARD, "Propose Naval Yard") && mischook_debug & MISCHOOK_DEBUG_MENU) {
-			ConsoleLog(LOG_DEBUG, "MISC: Debug InsertMenuA #5 failed, error = 0x%08X.\n", GetLastError());
-			return;
-		}
-		if (!InsertMenu(hDebugPopup, 5, MF_BYPOSITION|MF_STRING, IDM_DEBUG_MILITARY_ARMYBASE, "Propose Army Base") && mischook_debug & MISCHOOK_DEBUG_MENU) {
-			ConsoleLog(LOG_DEBUG, "MISC: Debug InsertMenuA #6 failed, error = 0x%08X.\n", GetLastError());
-			return;
-		}
-		if (!InsertMenu(hDebugPopup, 5, MF_BYPOSITION|MF_STRING, IDM_DEBUG_MILITARY_AIRFORCE, "Propose Air Force Base") && mischook_debug & MISCHOOK_DEBUG_MENU) {
-			ConsoleLog(LOG_DEBUG, "MISC: Debug InsertMenuA #7 failed, error = 0x%08X.\n", GetLastError());
-			return;
-		}
-		if (!InsertMenu(hDebugPopup, 5, MF_BYPOSITION|MF_STRING, IDM_DEBUG_MILITARY_DECLINED, "Stop Military Spawning") && mischook_debug & MISCHOOK_DEBUG_MENU) {
-			ConsoleLog(LOG_DEBUG, "MISC: Debug InsertMenuA #8 failed, error = 0x%08X.\n", GetLastError());
-			return;
-		}
-
-		afxMessageMapEntry[0] = {
-			WM_COMMAND,
-			0,
-			IDM_DEBUG_MILITARY_DECLINED,
-			IDM_DEBUG_MILITARY_DECLINED,
-			0x0A,
-			ProposeMilitaryBaseDecline,
-		};
-
-		afxMessageMapEntry[1] = {
-			WM_COMMAND,
-			0,
-			IDM_DEBUG_MILITARY_AIRFORCE,
-			IDM_DEBUG_MILITARY_AIRFORCE,
-			0x0A,
-			ProposeMilitaryBaseAirForceBase,
-		};
-
-		afxMessageMapEntry[2] = {
-			WM_COMMAND,
-			0,
-			IDM_DEBUG_MILITARY_ARMYBASE,
-			IDM_DEBUG_MILITARY_ARMYBASE,
-			0x0A,
-			ProposeMilitaryBaseArmyBase,
-		};
-
-		afxMessageMapEntry[3] = {
-			WM_COMMAND,
-			0,
-			IDM_DEBUG_MILITARY_NAVALYARD,
-			IDM_DEBUG_MILITARY_NAVALYARD,
-			0x0A,
-			ProposeMilitaryBaseNavalYard,
-		};
-
-		afxMessageMapEntry[4] = {
-			WM_COMMAND,
-			0,
-			IDM_DEBUG_MILITARY_MISSILESILOS,
-			IDM_DEBUG_MILITARY_MISSILESILOS,
-			0x0A,
-			ProposeMilitaryBaseMissileSilos,
-		};
-
-		VirtualProtect((LPVOID)0x4D4608, sizeof(afxMessageMapEntry), PAGE_EXECUTE_READWRITE, &dwDummy);
-		memcpy_s((LPVOID)0x4D4608, sizeof(afxMessageMapEntry), &afxMessageMapEntry, sizeof(afxMessageMapEntry));
-
-		if (mischook_debug & MISCHOOK_DEBUG_MENU)
-			ConsoleLog(LOG_DEBUG, "MISC: Updated debug menu.\n");
-	}
-}
-
-static int FindTheHouseLabel() {
-	for (int i = 1; i < MAX_USER_LABELS; ++i) {
-		if (dwMapXLAB[0][i].szLabel && _stricmp(dwMapXLAB[0][i].szLabel, theHouse)==0) {
-			return i;
-		}
-	}
-	return -1;
-}
-
-static void SetTheHouseLabel(int xPos, int ySignPos) {
-	__int16 iLabelIdx;
-	WORD iTextLen;
-
-	char(__stdcall *H_PrepareLabel)() = (char(__stdcall *)())0x402D56;
-
-	if (dwMapXTXT[xPos][ySignPos].bTextOverlay) {
-		if (dwMapXTXT[xPos][ySignPos].bTextOverlay >= MAX_USER_LABELS)
-			return;
-	}
-	iLabelIdx = H_PrepareLabel();
-	if (iLabelIdx) {
-		dwMapXTXT[xPos][ySignPos].bTextOverlay = (BYTE)iLabelIdx;
-		iTextLen = (WORD)strlen(theHouse);
-		memcpy(&dwMapXLAB[0][(int)iLabelIdx], theHouse, iTextLen);
-		dwMapXLAB[0][iLabelIdx].szLabel[iTextLen] = 0;
-	}
-}
-
-static BOOL FindTheHouse() {
-	__int16 xPos, yPos, xWindPos, ySignPos;
-	__int16 iLength, iDepth, iLabelIdx;
-
-	void(__cdecl *H_RemoveLabel)(__int16) = (void(__cdecl *)(__int16))0x401DCA;
-
-	xPos = -1;
-	yPos = -1;
-	ySignPos = -1;
-	for (iLength = 0; iLength < GAME_MAP_SIZE; ++iLength) {
-		for (iDepth = 0; iDepth < GAME_MAP_SIZE; ++iDepth) {
-			if (dwMapXBLD[iLength][iDepth].iTileID == TILE_COMMERCIAL_1X1_BEDANDBREAKFAST) {
-				if (dwMapXZON[iLength][iDepth].b.iZoneType == ZONE_NONE) {
-					xPos = iLength;
-					yPos = iDepth;
-					xWindPos = xPos - 1;
-					ySignPos = yPos - 1;
-					break;
-				}
-			}
-		}
-	}
-	iLabelIdx = FindTheHouseLabel();
-	if (xPos != -1 && yPos != -1) {
-		// Set the sign if it is missing.
-		if (iLabelIdx < 0)
-			SetTheHouseLabel(xPos, ySignPos);
-		// Set the Wind PowerPlant if it's not present
-		// (assuming the spot is still available).
-		Game_ItemPlacementCheck(xWindPos, yPos, TILE_POWERPLANT_WIND, 1);
-		Game_CenterOnTileCoords(xPos, yPos);
-		return TRUE;
-	}
-	if (iLabelIdx > 0 && iLabelIdx < MAX_USER_LABELS) {
-		for (iLength = 0; iLength < GAME_MAP_SIZE; ++iLength) {
-			for (iDepth = 0; iDepth < GAME_MAP_SIZE; ++iDepth) {
-				if (dwMapXTXT[iLength][iDepth].bTextOverlay == iLabelIdx) {
-					H_RemoveLabel(iLabelIdx);
-					dwMapXTXT[iLength][iDepth].bTextOverlay = 0;
-					break;
-				}
-			}
-		}
-	}
-	return FALSE;
-}
-
-static BOOL BuildTheHouse() {
-	int iAttempts;
-	__int16 xPos;
-	__int16 yPos;
-	__int16 xWindPos;
-	__int16 ySignPos;
-
-	map_XTER_t **dwMapXTERPrevX = (map_XTER_t **)0x4C9F54;
-
-	iAttempts = 0;
-	while (TRUE) {
-RETRY:
-		xPos = Game_RandomWordLFSRMod128();
-		yPos = Game_RandomWordLFSRMod128();
-		xWindPos = xPos - 1;
-		ySignPos = yPos - 1;
-		if (xWindPos < 0 || ySignPos < 0)
-			goto RETRY;
-		if (dwMapXBLD[xPos][yPos].iTileID < TILE_SMALLPARK) {
-			if (dwMapXBLD[xPos][ySignPos].iTileID < TILE_SMALLPARK &&
-				dwMapXBLD[xWindPos][yPos].iTileID < TILE_SMALLPARK) {
-				if (!dwMapXTER[xPos][yPos].iTileID &&
-					!dwMapXTER[xPos][ySignPos].iTileID &&
-					!dwMapXTERPrevX[xPos][yPos].iTileID &&
-					(xPos < 0 || yPos >= GAME_MAP_SIZE || !dwMapXBIT[xPos][yPos].b.iWater) &&
-					(xPos >= GAME_MAP_SIZE || ySignPos >= GAME_MAP_SIZE || !dwMapXBIT[xPos][ySignPos].b.iWater) &&
-					(xWindPos >= GAME_MAP_SIZE || yPos >= GAME_MAP_SIZE || !dwMapXBIT[xWindPos][yPos].b.iWater)) {
-					if (dwMapALTM[xPos][yPos].w.iLandAltitude == dwMapALTM[xPos][ySignPos].w.iLandAltitude &&
-						dwMapALTM[xPos][yPos].w.iLandAltitude == dwMapALTM[xWindPos][yPos].w.iLandAltitude) {
-						if (Game_ItemPlacementCheck(xPos, yPos, TILE_COMMERCIAL_1X1_BEDANDBREAKFAST, 1)) {
-							SetTheHouseLabel(xPos, ySignPos);
-							Game_ItemPlacementCheck(xWindPos, yPos, TILE_POWERPLANT_WIND, 1);
-							Game_CenterOnTileCoords(xPos, yPos);
-							return TRUE;
-						}
-					}
-				}
-			}
-		}
-
-		if (++iAttempts >= 100)
-			break;
-	}
-	return FALSE;
-}
-
-static void ChangeChurchZone() {
-	__int16 iReplaceTile, iLength, iDepth;
-
-	for (iLength = 0; iLength < GAME_MAP_SIZE; ++iLength) {
-		for (iDepth = 0; iDepth < GAME_MAP_SIZE; ++iDepth) {
-			if (dwMapXBLD[iLength][iDepth].iTileID == TILE_INFRASTRUCTURE_CHURCH) {
-				if (dwMapXZON[iLength][iDepth].b.iZoneType == ZONE_NONE) {
-					iReplaceTile = (rand() & 3) + 1; // Random rubble.
-					Game_PlaceTileWithMilitaryCheck(iLength, iDepth, iReplaceTile); // Replace
-					dwMapXZON[iLength][iDepth].b.iZoneType = ZONE_DENSE_RESIDENTIAL; // Re-zone
-				}
-			}
-		}
-	}
-}
-
-extern "C" void __stdcall Hook_MainFrameOnChar(UINT nChar, UINT nRepCnt, UINT nFlags) {
-	DWORD *pThis;
-
-	__asm mov [pThis], ecx
-
-	char nLowerChar;
-	int i, j;
-	int nCurrPos;
-	int *nCodeArr;
-	int nCodePos;
-	char nCodeChar;
-	cheat_t *strCheatEntry;
-	HWND hWnd;
-	DWORD *pSCView;
-	HMENU hMenu, hDebugMenu;
-	DWORD *pMenu, *pDebugMenu;
-	int iSCMenuPos;
-	DWORD jokeDlg[27];
-
-	void(__cdecl *H_DoFund)(__int16) = (void(__cdecl *)(__int16))0x40191F;
-	void(__thiscall *H_SimcityViewDebugGrantAllGifts)(DWORD *) = (void(__thiscall *)(DWORD *))0x401C0D;
-	int(__thiscall *H_ADialogDestruct)(void *) = (int(__thiscall *)(void *))0x401D7A;
-	void(__thiscall *H_SimcityAppAdjustNewspaperMenu)(void *) = (void(__thiscall *)(void *))0x40210D;
-	DWORD *(__thiscall *H_JokeDialogConstruct)(void *, void *) = (DWORD *(__thiscall *)(void *, void *))0x4024E6;
-	int(__stdcall *H_GetSimcityViewMenuPos)(int iPos) = (int(__stdcall *)(int))0x402EFA;
-	void(__stdcall *H_SimulationProposeMilitaryBase)() = (void(__stdcall *)())0x403017;
-	INT_PTR(__thiscall *H_DialogDoModal)(void *) = (INT_PTR(__thiscall *)(void *))0x4A7196;
-	DWORD *(__stdcall *H_CMenuFromHandle)(HMENU) = (DWORD *(__stdcall *)(HMENU))0x4A7427;
-	int(__thiscall *H_CMenuAttach)(DWORD *, HMENU) = (int(__thiscall *)(DWORD *, HMENU))0x4A7483;
-
-	HINSTANCE &game_hModule = *(HINSTANCE *)0x4CE8C8;
-	int &iCheatEntry = *(int *)0x4E6520;
-	int &iCheatExpectedCharPos = *(int *)0x4E6524;
-	char *szNewItem = (char *)0x4E66EC;
-
-	hWnd = (HWND)pThis[7];
-
-	// "Insert" key - only relevant in the demo but pressing it advances
-	// the timer.
-	if (nChar == 45) {
-		// Does nothing here - could be useful for other test cases.
-	}
-		
-	nLowerChar = tolower(nChar);
-TRYAGAIN:
-	if (iCheatEntry != -1) {
-		strCheatEntry = &cheatStrArray[iCheatEntry]; // Cheat entry
-		nCodeArr = cheatCharPos[iCheatEntry]; // Target character position reference array
-		nCodePos = nCodeArr[iCheatExpectedCharPos];
-		nCodeChar = strCheatEntry->pEntry[nCodePos];
-		if (nCodeChar == nLowerChar) {
-			nCurrPos = iCheatExpectedCharPos + 1;
-			iCheatExpectedCharPos = nCurrPos;
-			nCodePos = nCodeArr[nCurrPos];
-			if (nCurrPos != NUM_CHEAT_MAXCHARS && nCodePos != -1) {
-GOBACK:
-				if (iCheatEntry != -1)
-					return;
-				goto GETOUT;
-			}
-		}
-		else if (cheatMultipleDetections) {
-			for (i = 0; i < NUM_CHEATS; ++i) {
-				if (i == iCheatEntry)
-					continue;
-				j = cheatStrArray[i].iPos;
-				if (j >= 0) {
-					strCheatEntry = &cheatStrArray[j];
-					nCodeArr = cheatCharPos[j];
-					nCodePos = nCodeArr[iCheatExpectedCharPos];
-					nCodeChar = strCheatEntry->pEntry[nCodePos];
-					if (nCodeChar == nLowerChar) {
-						iCheatEntry = j;
-						goto TRYAGAIN;
-					}
-				}
-			}
-			iCheatEntry = -1;
-			goto GOBACK;
-		}
-		else {
-			iCheatEntry = -1;
-			goto GOBACK;
-		}
-		switch (strCheatEntry->iIndex) {
-			case CHEAT_FUND:
-				H_DoFund(25);
-				break;
-			case CHEAT_CASS:
-				if (!Game_RandomWordLFSRMod(16)) {
-					wSetTriggerDisasterType = DISASTER_FIRESTORM;
-					Game_SimulationPrepareDiasterCoordinates(&dwDisasterPoint, wCityCenterX, wCityCenterY);
-				}
-				dwCityFunds += 250;
-				break;
-			case CHEAT_THEWORKS:
-				pSCView = Game_PointerToCSimcityViewClass(&pCSimcityAppThis);
-				if (pSCView)
-					H_SimcityViewDebugGrantAllGifts(pSCView);
-				break;
-			case CHEAT_MAJORFLOOD:
-				wSetTriggerDisasterType = DISASTER_MASSFLOODS;
-				Game_SimulationPrepareDiasterCoordinates(&dwDisasterPoint, wCityCenterX, wCityCenterY);
-				break;
-			case CHEAT_PARTTHESEA:
-				// An extrapolation of 'moses' from the Windows 3.1 game.
-				// Once the code is activated it takes a moment for the
-				// flood/wind to halt.
-				if (dwDisasterActive) {
-					if (wCurrentDisasterID == DISASTER_FLOOD ||
-						wCurrentDisasterID == DISASTER_HURRICANE ||
-						wCurrentDisasterID == DISASTER_MASSFLOODS) {
-						if (wDisasterFloodArea > 0)
-							wDisasterFloodArea = 0;
-						if (wDisasterWindy > 0)
-							wDisasterWindy = 0;
-					}
-				}
-				break;
-			case CHEAT_FIRESTORM:
-				wSetTriggerDisasterType = DISASTER_FIRESTORM;
-				Game_SimulationPrepareDiasterCoordinates(&dwDisasterPoint, wCityCenterX, wCityCenterY);
-				break;
-			case CHEAT_DEBUG:
-				if (bPriscillaActivated)
-					return;
-				hMenu = GetMenu(hWnd);
-				pMenu = H_CMenuFromHandle(hMenu);
-				pDebugMenu = (DWORD *)operator new(8); // This would be CMenu().
-				if (pDebugMenu)
-					pDebugMenu[1] = 0;
-				hDebugMenu = LoadMenuA(game_hModule, (LPCSTR)223);
-				AdjustDebugMenu(hDebugMenu);
-				H_CMenuAttach(pDebugMenu, hDebugMenu);
-				iSCMenuPos = H_GetSimcityViewMenuPos(6);
-				InsertMenuA((HMENU)pMenu[1], iSCMenuPos + 6, MF_BYPOSITION|MF_POPUP, pDebugMenu[1], szNewItem);
-				H_SimcityAppAdjustNewspaperMenu(&pCSimcityAppThis);
-				DrawMenuBar(hWnd);
-				bPriscillaActivated = 1;
-				break;
-			case CHEAT_MILITARY:
-				H_SimulationProposeMilitaryBase();
-				break;
-			case CHEAT_JOKE:
-				H_JokeDialogConstruct((void *)&jokeDlg, 0);
-				H_DialogDoModal((void *)&jokeDlg);
-				H_ADialogDestruct((void *)&jokeDlg); // Function name references "A" dialog rather than anything specific.
-				break;
-			case CHEAT_WEBB:
-				if (!FindTheHouse()) {
-					if (!BuildTheHouse())
-						L_MessageBoxA(hWnd, "Sorry, no room to build Ilona's house!", gamePrimaryKey, MB_ICONINFORMATION | MB_OK);
-				}
-				break;
-			case CHEAT_OOPS:
-				L_MessageBoxA(hWnd, "Same to you, buddy!", "Hey!", MB_ICONEXCLAMATION | MB_OK);
-				if (iChurchVirus < 0)
-					iChurchVirus = 0; // Warning
-				else if (iChurchVirus == 0)
-					iChurchVirus = 1; // You asked for it!
-				break;
-			case CHEAT_REPENT:
-				if (iChurchVirus > 0) {
-					if (L_MessageBoxA(hWnd, "Tea Father?", gamePrimaryKey, MB_ICONINFORMATION | MB_YESNO) == IDYES) {
-						iChurchVirus = 0; // Set it back to 0 rather than -1; the next execution of the related cheats will result in immediate action.
-						ChangeChurchZone();
-					}
-					else
-						goto NO;
-				}
-				else {
-					if (iChurchVirus == 0)
-						iChurchVirus = -1; // Set back to -1 if executed once more.
-NO:
-					L_MessageBoxA(hWnd, "Oh go on..", gamePrimaryKey, MB_ICONEXCLAMATION | MB_OK);
-				}
-				break;
-			default:
-				break;
-		}
-		iCheatEntry = -1;
-		iCheatExpectedCharPos = 0;
-		goto GOBACK;
-	}
-
-	iCheatEntry = -1;
-	iCheatExpectedCharPos = 0;
-
-	cheatMultipleDetections = FALSE;
-	for (i = 0; i < NUM_CHEATS; ++i) {
-		strCheatEntry = &cheatStrArray[i];
-		if (strCheatEntry) {
-			strCheatEntry->iPos = -1;
-			if (*strCheatEntry->pEntry == nLowerChar) {
-				strCheatEntry->iPos = i;
-				if (iCheatEntry < 0) {
-					iCheatExpectedCharPos = 1;
-					iCheatEntry = strCheatEntry->iPos;
-				}
-				else
-					cheatMultipleDetections = TRUE;
-			}
-		}
-	}
-
-GETOUT:
-	if (iCheatEntry == -1)
-		iCheatExpectedCharPos = 0;
-}
-
-extern "C" void __stdcall Hook_SimcityDocUpdateDocumentTitle() {
-	DWORD *pThis;
+extern "C" void __stdcall Hook_SimcityDoc_UpdateDocumentTitle() {
+	CSimcityDoc *pThis;
 
 	__asm mov [pThis], ecx
 
 	CMFC3XString cStr;
+	CSimcityAppPrimary *pSCApp;
 	int iCityDayMon;
 	int iCityMonth;
 	int iCityYear;
 	const char *pCurrStr;
 	CSimString *pFundStr;
 
-	CSimString *(__thiscall *H_SimStringSetString)(CSimString *, const char *pSrc, int iSize, double idAmount) = (CSimString *(__thiscall *)(CSimString *, const char *pSrc, int iSize, double idAmount))0x4015CD;
-	void(__thiscall *H_SimStringTruncateAtSpace)(CSimString *) = (void(__thiscall *)(CSimString *))0x4019B5;
-	void(__thiscall *H_SimStringDest)(CSimString *) = (void(__thiscall *)(CSimString *))0x40242D;
-	void(__cdecl *H_CStringFormat)(CMFC3XString *, char const *Ptr, ...) = (void(__cdecl *)(CMFC3XString *, char const *Ptr, ...))0x49EBD3;
-	CMFC3XString *(__thiscall *H_CStringCons)(CMFC3XString *) = (CMFC3XString *(__thiscall *)(CMFC3XString *))0x4A2C28;
-	void(__thiscall *H_CStringEmpty)(CMFC3XString *) = (void(__thiscall *)(CMFC3XString *))0x4A2C95;
-	void(__thiscall *H_CStringDest)(CMFC3XString *) = (void(__thiscall *)(CMFC3XString *))0x4A2CB0;
-	BOOL(__thiscall *H_CStringLoadStringA)(CMFC3XString *, unsigned int) = (BOOL(__thiscall *)(CMFC3XString *, unsigned int))0x4A3453;
-	BOOL(__stdcall *H_IsIconic)(HWND hWnd) = (BOOL(__stdcall *)(HWND hWnd))0x49BCF4;
+	GameMain_String_Cons(&cStr);
 
-	DWORD &MainFrmDest = *(DWORD *)0x4C7110;
-	CMFC3XString &SCAStringLang = *(CMFC3XString *)0x4C7148;
-	CMFC3XString *SCApCStringArrLongMonths = (CMFC3XString *)0x4C71F8;
-	CMFC3XString *SCApCStringArrShortMonths = (CMFC3XString *)0x4C7288;
-	const char *gameCurrDollar = (const char *)0x4E6168;
-	const char *gameCurrDM = (const char *)0x4E6180;
-	const char *gameLangGerman = (const char *)0x4E6198;
-	const char *gameCurrFF = (const char *)0x4E619C;
-	const char *gameLangFrench = (const char *)0x4E61B4;
-	const char *gameStrHyphen = (const char *)0x4E6804;
-
-	H_CStringCons(&cStr);
-
-	if (!MainFrmDest) {
+	pSCApp = &pCSimcityAppThis;
+	if (!pSCApp->dwSCAMainFrameDestroyVar) {
 		if (!wCityMode) {
-			H_CStringLoadStringA(&cStr, 0x19D); // "Editing Terrain..."
+			GameMain_String_LoadStringA(&cStr, 0x19D); // "Editing Terrain..."
 			goto GOFORWARD;
 		}
 		if (!pszCityName.m_nDataLength)
@@ -2180,20 +693,20 @@ extern "C" void __stdcall Hook_SimcityDocUpdateDocumentTitle() {
 		iCityDayMon = dwCityDays % 25 + 1;
 		iCityMonth = dwCityDays / 25 % 12;
 		iCityYear = wCityStartYear + dwCityDays / 300;
-		if (H_IsIconic(GameGetRootWindowHandle())) {
+		if (GameMain_IsIconic(GameGetRootWindowHandle())) {
 			if (dwDisasterActive) {
 				if (wCurrentDisasterID <= DISASTER_HURRICANE)
-					H_CStringLoadStringA(&cStr, dwDisasterStringIndex[wCurrentDisasterID]);
+					GameMain_String_LoadStringA(&cStr, dwDisasterStringIndex[wCurrentDisasterID]);
 				else
-					H_CStringEmpty(&cStr);
+					GameMain_String_Empty(&cStr);
 			}
 			else
-				H_CStringFormat(&cStr, "%s%s%d", pszCityName.m_pchData, gameStrHyphen, iCityYear);
+				GameMain_String_Format(&cStr, "%s%s%d", pszCityName.m_pchData, gameStrHyphen, iCityYear);
 			goto GOFORWARD;
 		}
-		H_CStringEmpty(&cStr);
-		if (wcscmp((const wchar_t *)SCAStringLang.m_pchData, (const wchar_t *)gameLangFrench) != 0) {
-			if (wcscmp((const wchar_t *)SCAStringLang.m_pchData, (const wchar_t *)gameLangGerman) != 0)
+		GameMain_String_Empty(&cStr);
+		if (strcmp(pSCApp->dwSCACStringLang.m_pchData, gameLangFrench) != 0) {
+			if (strcmp(pSCApp->dwSCACStringLang.m_pchData, gameLangGerman) != 0)
 				pCurrStr = gameCurrDollar;
 			else
 				pCurrStr = gameCurrDM;
@@ -2202,23 +715,23 @@ extern "C" void __stdcall Hook_SimcityDocUpdateDocumentTitle() {
 			pCurrStr = gameCurrFF;
 		pFundStr = new CSimString();
 		if (pFundStr)
-			pFundStr = H_SimStringSetString(pFundStr, pCurrStr, 20, (double)dwCityFunds);
+			pFundStr = Game_SimString_SetString(pFundStr, pCurrStr, 20, (double)dwCityFunds);
 		else
 			goto GETOUT;
-		H_SimStringTruncateAtSpace(pFundStr);
+		Game_SimString_TruncateAtSpace(pFundStr);
 		if (bSettingsTitleCalendar)
-			H_CStringFormat(&cStr, "%s %d %4d <%s> %s", SCApCStringArrLongMonths[iCityMonth].m_pchData, iCityDayMon, iCityYear, pszCityName.m_pchData, pFundStr->pStr);
+			GameMain_String_Format(&cStr, "%s %d %4d <%s> %s", pSCApp->dwSCApCStringLongMonths[iCityMonth].m_pchData, iCityDayMon, iCityYear, pszCityName.m_pchData, pFundStr->pStr);
 		else
-			H_CStringFormat(&cStr, "%s %4d <%s> %s", SCApCStringArrShortMonths[iCityMonth].m_pchData, iCityYear, pszCityName.m_pchData, pFundStr->pStr);
+			GameMain_String_Format(&cStr, "%s %4d <%s> %s", pSCApp->dwSCApCStringShortMonths[iCityMonth].m_pchData, iCityYear, pszCityName.m_pchData, pFundStr->pStr);
 		if (pFundStr) {
-			H_SimStringDest(pFundStr);
+			Game_SimString_Dest(pFundStr);
 			operator delete(pFundStr);
 		}
 GOFORWARD:
-		Game_CDocument_UpdateAllViews(pThis, 0, 1, &cStr);
+		GameMain_Document_UpdateAllViews(pThis, 0, 1, (CMFC3XObject *)&cStr);
 	}
 GETOUT:
-	H_CStringDest(&cStr);
+	GameMain_String_Dest(&cStr);
 }
 
 // Local TileHightlightUpdate function.
@@ -2226,39 +739,27 @@ GETOUT:
 // the oddities that come with either:
 // 1) African Swallow mode during non-granular updates (batch).
 // 2) Granular updates on all speed levels. (more so for African Swallow and Cheetah)
-static void L_TileHighlightUpdate(DWORD *pThis) {
+static void L_TileHighlightUpdate(CSimcityView *pThis) {
 	BYTE *vBits;
 	LONG bottom;
 	LONG x;
 	__int16 y;
 
-	int(__cdecl *H_BeginObject)(void *, void *, int, __int16, RECT *) = (int(__cdecl *)(void *, void *, int, __int16, RECT *))0x401226;
-	BOOL(__thiscall *H_SimcityViewMainWindowUpdate)(void *, RECT *, BOOL) = (BOOL(__thiscall *)(void *, RECT *, BOOL))0x40152D;
-	void(__thiscall *H_GraphicsUnlockDIBBits)(void *) = (void(__thiscall *)(void *))0x401BE5;
-	int(__thiscall *H_GraphicsHeight)(void *) = (int(__thiscall *)(void *))0x40216C;
-	LONG(__thiscall *H_GraphicsWidth)(void *) = (LONG(__thiscall *)(void *))0x402419;
-	int(__thiscall *H_SimcityViewCheckOrLoadGraphic)(void *) = (int(__thiscall *)(void *))0x40297D;
-	BOOL(__stdcall *H_FinishObject)() = (BOOL(__stdcall *)())0x402B7B;
-	BYTE *(__thiscall *H_GraphicsLockDIBBits)(void *) = (BYTE *(__thiscall *)(void *))0x402DA1;
-
-	DWORD &pSomeWnd = *(DWORD *)0x4CAC18; // Perhaps this is the active view window? (unclear - but this is referenced in the native TileHighlightUpdate function)
-	RECT &dRect = *(RECT *)0x4CAD48;
-
 	if (wTileHighlightActive) {
-		vBits = H_GraphicsLockDIBBits((void *)pThis[13]);
-		if (vBits || H_SimcityViewCheckOrLoadGraphic(pThis)) {
-			x = H_GraphicsWidth((void *)pThis[13]);
-			y = H_GraphicsHeight((void *)pThis[13]);
+		vBits = Game_Graphics_LockDIBBits(pThis->SCVGraphics);
+		if (vBits || Game_SimcityView_CheckOrLoadGraphic(pThis)) {
+			x = Game_Graphics_Width(pThis->SCVGraphics);
+			y = Game_Graphics_Height(pThis->SCVGraphics);
 			if (!bOverrideTickPlacementHighlight) {
-				H_BeginObject(pThis, vBits, x, y, (RECT *)pThis + 19);
-				Game_DrawSquareHighlight(pThis, wHighlightedTileX1, wHighlightedTileY1, wHighlightedTileX2, wHighlightedTileY2);
-				H_FinishObject();
+				Game_BeginProcessObjects(pThis, vBits, x, y, &pThis->SCVAreaView);
+				Game_SimcityView_DrawSquareHighlight(pThis, wHighlightedTileX1, wHighlightedTileY1, wHighlightedTileX2, wHighlightedTileY2);
+				Game_FinishProcessObjects();
 			}
-			H_GraphicsUnlockDIBBits((void *)pThis[13]);
-			bottom = ++dRect.bottom;
-			if (*(DWORD *)((char *)pThis + 322)) {
-				dRect.bottom = bottom + 2;
-				++dRect.right;
+			Game_Graphics_UnlockDIBBits(pThis->SCVGraphics);
+			bottom = ++rcDst.bottom;
+			if (pThis->dwSCVIsZoomed) {
+				rcDst.bottom = bottom + 2;
+				++rcDst.right;
 			}
 			// As it turns out this if case is necessary here.. otherwise it results in breakage when
 			// it comes to the pollution clouds (entire view window update rather than just the
@@ -2266,10 +767,10 @@ static void L_TileHighlightUpdate(DWORD *pThis) {
 			// ^ Unclear - the pollution case still expresses itself even with this case implemented.
 			// Tests performed in the 'Interactive Demo' (of which don't have any of these hooks) have
 			// also resulted in similar intermittent encounters.
-			if (pThis == &pSomeWnd)
-				H_SimcityViewMainWindowUpdate(pThis, 0, 1);
+			if (pThis == (CSimcityView *)&pSomeWnd)
+				Game_SimcityView_MainWindowUpdate(pThis, 0, 1);
 			else
-				H_SimcityViewMainWindowUpdate(pThis, &dRect, 1);
+				Game_SimcityView_MainWindowUpdate(pThis, &rcDst, 1);
 			if (bOverrideTickPlacementHighlight)
 				wTileHighlightActive = 0;
 		}
@@ -2279,128 +780,132 @@ static void L_TileHighlightUpdate(DWORD *pThis) {
 static void UpdateCityDateAndSeason(BOOL bIncrement) {
 	if (bIncrement)
 		++dwCityDays;
-	wCityCurrentMonth = dwCityDays / 25 % 12;
-	wCityCurrentSeason = (dwCityDays / 25 % 12 + 1) % 12 / 3;
-	wCityElapsedYears = dwCityDays / 300;
+	wCityCurrentMonth = (dwCityDays / 25) % 12;
+	wCityCurrentSeason = (wCityCurrentMonth + 1) % 12 / 3;
+	wCityElapsedYears = (dwCityDays / 300);
 }
 
-extern "C" void __stdcall Hook_SimulationProcessTick() {
+// Function prototype: HOOKCB void Hook_SimCalendarAdvance_Before(void)
+// Called before the vanilla SimCalendar day simulation. Cannot be ignored.
+std::vector<hook_function_t> stHooks_Hook_SimCalendarAdvance_Before;
+
+// Function prototype: HOOKCB BOOL Hook_ScenarioSuccessCheck(void)
+// Cannot be ignored.
+// Return value: TRUE if the mod's scenario requirements have been met, FALSE if not.
+std::vector<hook_function_t> stHooks_Hook_ScenarioSuccessCheck;
+
+// Function prototype: HOOKCB void Hook_SimCalendarAdvance_After(void)
+// Called after the vanilla SimCalendar day simulation. Cannot be ignored.
+std::vector<hook_function_t> stHooks_Hook_SimCalendarAdvance_After;
+
+extern "C" void __stdcall Hook_Engine_SimulationProcessTick() {
 	int i;
 	DWORD dwMonDay;
-	DWORD newsDialog[156];
+	CNewspaperDialog newsDialog;
 	__int16 iStep, iSubStep;
 	DWORD dwCityProgressionRequirement;
 	BYTE iPaperVal;
 	BOOL bScenarioSuccess;
 	BOOL bDoTileHighlightUpdate;
-	DWORD *pSCApp;
-	DWORD *pSCView;
+	CSimcityAppPrimary *pSCApp;
+	CSimcityView *pSCView;
 
-	void(__stdcall *H_UpdateGraphDialog)() = (void(__stdcall *)())0x4010A5;
-	void(__stdcall *H_SimulationPollutionTerrainAndLandValueScan)() = (void(__stdcall *)())0x401154;
-	void(__stdcall *H_SimulationEQ_LE_Processing)() = (void(__stdcall *)())0x401262;
-	void(__cdecl *H_UpdateSimNationDialog)() = (void(__cdecl *)())0x4012FD;
-	void(__stdcall *H_UpdateIndustryDialog)() = (void(__stdcall *)())0x40142E;
-	void(__cdecl *H_SimulationPrepareBudgetDialog)(int) = (void(__cdecl *)(int))0x4015E6;
-	void(__cdecl *H_SimulationGrantReward)(__int16 iReward, int iToggle) = (void(__cdecl *)(__int16 iReward, int iToggle))0x401672;
-	void(__stdcall *H_UpdatePopulationDialog)() = (void(__stdcall *)())0x40169F;
-	void(__thiscall *H_SimcityAppCallAutoSave)(void *) = (void(__thiscall *)(void *))0x4016A9;
-	void(__thiscall *H_SimcityViewMaintainCursor)(void *) = (void(__thiscall *)(void *))0x401A96;
-	void(__stdcall *H_SimulationUpdateWaterConsumption)() = (void(__stdcall *)())0x401CA8;
-	void(__stdcall *H_UpdateWeatherOrDisasterState)() = (void(__stdcall *)())0x401E65;
-	DWORD *(__thiscall *H_NewspaperConstruct)(void *) = (DWORD *(__thiscall *)(void *))0x401F23;
-	void(__stdcall *H_UpdateGraphData)() = (void(__stdcall *)())0x402022;
-	void(__thiscall *H_SimcityAppAdjustNewspaperMenu)(void *) = (void(__thiscall *)(void *))0x40210D;
-	void(__stdcall *H_SimulationRCIDemandUpdates)() = (void(__stdcall *)())0x40217B;
-	int(__thiscall *H_GameDialogDoModal)(void *) = (int(__thiscall *)(void *))0x40219E;
-	void(__cdecl *H_SimulationGrowthTick)(__int16 iStep, __int16 iSubStep) = (void(__cdecl *)(__int16, __int16))0x4022FC;
-	void(__cdecl *H_UpdateCityMap)() = (void(__cdecl *)())0x40239C;
-	void(__stdcall *H_ToolMenuUpdate)() = (void(__stdcall *)())0x4023EC;
-	void(__cdecl *H_EventScenarioNotification)(__int16 iEvent) = (void(__cdecl *)(__int16 iEvent))0x402487;
-	void(__thiscall *H_NewspaperDestruct)(void *) = (void(__thiscall *)(void *))0x4025B3;
-	void(__stdcall *H_SimulationUpdatePowerConsumption)() = (void(__stdcall *)())0x4026F8;
-	void(__stdcall *H_NewspaperStoryGenerator)(__int16 iPaperType, BYTE iPaperVal) = (void(__stdcall *)(__int16 iPaperType, BYTE iPaperVal))0x402900;
-	void(__stdcall *H_UpdateBudgetInformation)() = (void(__stdcall *)())0x402D2E;
-	void(__stdcall *H_SimulationUpdateMonthlyTrafficData)() = (void(__stdcall *)())0x402D51;
-	void(__thiscall *H_MainFrameUpdateCityToolBar)(void *) = (void(__thiscall *)(void *))0x402F18;
-	void(__stdcall *H_SimulationProposeMilitaryBase)() = (void(__stdcall *)())0x403017;
-
+	pSCApp = &pCSimcityAppThis;
 	UpdateCityDateAndSeason(TRUE);
 	dwMonDay = (dwCityDays % 25);
-	if (dwSCAGameAutoSave > 0 &&
-		!((dwCityDays / 300) % dwSCAGameAutoSave) &&
+	if (pSCApp->dwSCAGameAutoSave > 0 &&
+		!((dwCityDays / 300) % pSCApp->dwSCAGameAutoSave) &&
 		!wCityCurrentMonth &&
 		!dwMonDay) {
-		H_SimcityAppCallAutoSave(&pCSimcityAppThis);
+		Game_SimcityApp_CallAutoSave(pSCApp);
 	}
 
 	if (bSettingsFrequentCityRefresh) {
-		Game_RefreshTitleBar(pCDocumentMainWindow);
-		Game_CDocument_UpdateAllViews(pCDocumentMainWindow, NULL, 2, NULL);
+		Game_SimcityDoc_UpdateDocumentTitle(pCSimcityDoc);
+		GameMain_Document_UpdateAllViews(pCSimcityDoc, NULL, 2, NULL);
 	}
 
-	
+	// Call mods for daily processing tasks - before update
+	// XXX - should mods be able to entirely override SimCalendar days? Perhaps this is more a
+	// theological discussion to be held...
+	for (const auto& hook : stHooks_Hook_SimCalendarAdvance_Before) {
+		if (hook.iType == HOOKFN_TYPE_NATIVE && hook.bEnabled) {
+			BOOL(*fnHook)() = (BOOL(*)())hook.pFunction;
+			fnHook();
+		}
+	}
+
+	// Advance the simulation for the current SimCalendar day
 	switch (dwMonDay) {
 		case 0:
 			if (!bSettingsFrequentCityRefresh)
-				Game_RefreshTitleBar(pCDocumentMainWindow);
+				Game_SimcityDoc_UpdateDocumentTitle(pCSimcityDoc);
 			if (bYearEndFlag)
-				H_SimulationPrepareBudgetDialog(0);
-			H_UpdateBudgetInformation();
+				Game_SimulationPrepareBudgetDialog(0);
+			Game_UpdateBudgetInformation();
 			if (bNewspaperSubscription) {
 				if (wCityCurrentMonth == 3 || wCityCurrentMonth == 7) {
-					H_NewspaperConstruct((void *)&newsDialog);
-					newsDialog[39] = wNewspaperChoice; // CNewspaperDialog -> CGameDialog -> CDialog; struct position 39 - paperchoice dword var.
-					H_GameDialogDoModal(&newsDialog);
-					H_NewspaperDestruct(&newsDialog);
+					Game_NewspaperDialog_Construct(&newsDialog);
+					newsDialog.dwNDPaperChoice = wNewspaperChoice; // CNewspaperDialog -> CGameDialog -> CDialog; struct position 39 - paperchoice dword var.
+					Game_GameDialog_DoModal(&newsDialog);
+					Game_NewspaperDialog_Destruct(&newsDialog);
 				}
 			}
 			UpdateCityDateAndSeason(FALSE);
-			for (i = 0; i < 8; pZonePops[i - 1] = 0)
-				++i;
+			for (i = 0; i < ZONEPOP_COUNT; ++i)
+				pZonePops[i] = 0;
 			break;
 		case 1:
-			H_SimulationUpdatePowerConsumption();
+			Game_SimulationUpdatePowerConsumption();
 			break;
 		case 2:
-			H_SimulationPollutionTerrainAndLandValueScan();
+			Game_SimulationPollutionTerrainAndLandValueScan();
 			break;
 		// Switch cases 3-18 have been moved to 'default' as
 		// if (dwMonDay >= 3 && dwMonDay <= 18).
 		case 19:
-			H_SimulationUpdateMonthlyTrafficData();
+			Game_SimulationUpdateMonthlyTrafficData();
 			break;
 		case 20:
-			H_SimulationUpdateWaterConsumption();
+			Game_SimulationUpdateWaterConsumption();
 			break;
 		case 21:
-			H_SimulationRCIDemandUpdates();
-			H_SimulationEQ_LE_Processing();
-			H_UpdateGraphData();
+			Game_SimulationRCIDemandUpdates();
+			Game_SimulationEQ_LE_Processing();
+			Game_UpdateGraphData();
 			break;
 		case 22:
+			// Check against city milestone progression requirements and grant new milestones
 			dwCityProgressionRequirement = dwCityProgressionRequirements[wCityProgression];
 			if (dwCityProgressionRequirement) {
 				if (dwCityProgressionRequirement < dwCityPopulation) {
-					Game_SimcityAppSetGameCursor(&pCSimcityAppThis, 24, 0);
-					iPaperVal = wCityProgression++;
-					H_NewspaperStoryGenerator(3, iPaperVal);
-					H_SimcityAppAdjustNewspaperMenu(&pCSimcityAppThis);
+					Game_SimcityApp_SetGameCursor(pSCApp, 24, 0);
+					// There are only 7 (0-6) progression levels, cast the warning away.
+					iPaperVal = (BYTE)wCityProgression++;
+					Game_NewspaperStoryGenerator(3, iPaperVal);
+					Game_SimcityApp_AdjustNewspaperMenu(pSCApp);
 					if (wCityProgression >= 4) {
 						if (wCityProgression == 4)
-							H_SimulationProposeMilitaryBase();
+							Game_SimulationProposeMilitaryBase();
 						else if (wCityProgression == 5)
-							H_SimulationGrantReward(3, 1);
+							Game_SimulationGrantReward(3, 1);
 					}
 					else
-						H_SimulationGrantReward(wCityProgression - 1, 1);
-					H_ToolMenuUpdate();
-					H_SimcityAppAdjustNewspaperMenu(&pCSimcityAppThis);
-					Game_SimcityAppSetGameCursor(&pCSimcityAppThis, 0, 0);
+						Game_SimulationGrantReward(wCityProgression - 1, 1);
+					Game_ToolMenuUpdate();
+					Game_SimcityApp_AdjustNewspaperMenu(pSCApp);
+					Game_SimcityApp_SetGameCursor(pSCApp, 0, 0);
 				}
 			}
+
 			if (bInScenario) {
-				bScenarioSuccess = dwScenarioCitySize <= dwCityPopulation;
+				// Set our default scenario success state to true; we'll be picking off individual
+				// success/fail requirements from here and marking as false if they're not met
+				bScenarioSuccess = TRUE;
+
+				// Iterate through possible the vanilla scenario requirements
+				if (dwScenarioCitySize > dwCityPopulation && dwScenarioCitySize)
+					bScenarioSuccess = FALSE;
 				if (pBudgetArr[BUDGET_RESFUND].iCurrentCosts < (int)dwScenarioResPopulation)
 					bScenarioSuccess = FALSE;
 				if (pBudgetArr[BUDGET_COMFUND].iCurrentCosts < (int)dwScenarioComPopulation)
@@ -2429,26 +934,40 @@ extern "C" void __stdcall Hook_SimulationProcessTick() {
 					if (dwTileCount[bScenarioBuildingGoal2] < wScenarioBuildingGoal2Count)
 						bScenarioSuccess = FALSE;
 				}
+
+				// Iterate through mod-based scenario goals
+				for (const auto& hook : stHooks_Hook_ScenarioSuccessCheck) {
+					if (hook.iType == HOOKFN_TYPE_NATIVE && hook.bEnabled) {
+						BOOL(*fnHook)() = (BOOL(*)())hook.pFunction;
+						if (!fnHook())
+							bScenarioSuccess = FALSE;
+					}
+				}
+
+				// Declare victory if the player has met the requirements, or tick down towards
+				// failure if they haven't
 				if (bScenarioSuccess)
-					H_EventScenarioNotification(1);
+					Game_EventScenarioNotification(GAMEOVER_SCENARIO_VICTORY);
 				else if (!--wScenarioTimeLimitMonths)
-					H_EventScenarioNotification(0);
+					Game_EventScenarioNotification(GAMEOVER_SCENARIO_FAILURE);
 			}
+
+			// Check if the city is bankrupt and impeach the mayor if so
 			if (dwCityFunds < -100000)
-				H_EventScenarioNotification(2);
+				Game_EventScenarioNotification(GAMEOVER_BANKRUPT);
 			break;
 		case 23:
 			if (!bSettingsFrequentCityRefresh)
-				Game_CDocument_UpdateAllViews(pCDocumentMainWindow, NULL, 2, NULL);
-			H_UpdatePopulationDialog();
-			H_UpdateIndustryDialog();
-			H_UpdateGraphDialog();
+				GameMain_Document_UpdateAllViews(pCSimcityDoc, NULL, 2, NULL);
+			Game_UpdatePopulationDialog();
+			Game_UpdateIndustryDialog();
+			Game_UpdateGraphDialog();
 			break;
 		case 24:
-			H_MainFrameUpdateCityToolBar(pCWndRootWindow);
-			H_UpdateCityMap();
-			H_UpdateSimNationDialog();
-			H_UpdateWeatherOrDisasterState();
+			Game_MainFrame_UpdateCityToolBar((CMainFrame *)pSCApp->m_pMainWnd);
+			Game_UpdateCityMap();
+			Game_UpdateSimNationDialog();
+			Game_UpdateWeatherOrDisasterState();
 			break;
 		default:
 			// Moved here rather than the prior list of cases that were
@@ -2458,53 +977,60 @@ extern "C" void __stdcall Hook_SimulationProcessTick() {
 					UpdateCityDateAndSeason(FALSE);
 				iStep = ((dwMonDay - 3) / 4 % 4); // Steps 0 - 3 in groups of 4.
 				iSubStep = (dwMonDay + 1) % 4; // SubSteps 0-3 for each group of 4.
-				H_SimulationGrowthTick(iStep, iSubStep);
+				Game_SimulationGrowthTick(iStep, iSubStep);
 				break;
 			}
 			return;
 	}
 
+	// Call mods for daily processing tasks - after update
+	for (const auto& hook : stHooks_Hook_SimCalendarAdvance_After) {
+		if (hook.iType == HOOKFN_TYPE_NATIVE && hook.bEnabled) {
+			BOOL(*fnHook)() = (BOOL(*)())hook.pFunction;
+			fnHook();
+		}
+	}
+
 	// Explanation:
 	// !bSettingsFrequentCityRefresh - It will do the tile highlight update if:
-	// 1) wSimulationSpeed is set to African Swallow
+	// 1) pSCApp->wSCAGameSpeedLOW is set to African Swallow
 	// 2) pSCApp[198] is true (AnimationOffCycle) or it is game day 21 - CDocument::UpdateAllViews case.
 	//
-	// bSettingsFrequentCityRefresh - Tile highlight updates only occur if wSimulationSpeed
+	// bSettingsFrequentCityRefresh - Tile highlight updates only occur if pSCApp->wSCAGameSpeedLOW
 	// isn't set to paused.
 
 	bDoTileHighlightUpdate = FALSE;
-	pSCApp = &pCSimcityAppThis;
 	if (!bSettingsFrequentCityRefresh) {
-		if (wSimulationSpeed == GAME_SPEED_AFRICAN_SWALLOW) {
-			if (pSCApp[198] || dwMonDay == 21)
+		if (pSCApp->wSCAGameSpeedLOW == GAME_SPEED_AFRICAN_SWALLOW) {
+			if (pSCApp->dwSCAAnimationOffCycle || dwMonDay == 21)
 				bDoTileHighlightUpdate = TRUE;
 		}
 	}
 	else {
-		if (wSimulationSpeed != GAME_SPEED_PAUSED) {
+		if (pSCApp->wSCAGameSpeedLOW != GAME_SPEED_PAUSED) {
 			bDoTileHighlightUpdate = TRUE;
 		}
 	}
 
 	if (bDoTileHighlightUpdate) {
-		pSCView = Game_PointerToCSimcityViewClass(&pCSimcityAppThis);
+		pSCView = Game_SimcityApp_PointerToCSimcityViewClass(pSCApp);
 		if (pSCView) {
 			if (wCityMode) {
 				// It should be noted that the highlight will only appear with a valid selected tool.
 				// If you attempt to press Shift or Control (for the bulldozer or query) while an
 				// invalid tool is selected, there'll be no placement highlighted (this matches the
 				// behaviour in the normal game as well).
-				if (wCurrentCityToolGroup != TOOL_GROUP_CENTERINGTOOL) {
+				if (wCurrentCityToolGroup != CITYTOOL_GROUP_CENTERINGTOOL) {
 					if (wTileCoordinateX < 0 || wTileCoordinateX >= GAME_MAP_SIZE ||
 						wTileCoordinateY < 0 || wTileCoordinateY >= GAME_MAP_SIZE ||
-						(wCurrentCityToolGroup == TOOL_GROUP_REWARDS && wSelectedSubtool[wCurrentCityToolGroup] == REWARDS_ARCOLOGIES_WAITING)) {
+						(wCurrentCityToolGroup == CITYTOOL_GROUP_REWARDS && wSelectedSubtool[wCurrentCityToolGroup] == REWARDS_ARCOLOGIES_WAITING)) {
 						wTileHighlightActive = 0;
 					}
 					else {
 						wTileHighlightActive = 1;
 						L_TileHighlightUpdate(pSCView);
 					}
-					H_SimcityViewMaintainCursor(pSCView);
+					Game_SimcityView_MaintainCursor(pSCView);
 				}
 			}
 		}
@@ -2512,58 +1038,33 @@ extern "C" void __stdcall Hook_SimulationProcessTick() {
 }
 
 extern "C" void __stdcall Hook_SimulationStartDisaster(void) {
-	void(__stdcall *H_SimulationStartDisaster)() = (void(__stdcall *)())0x45CF10;
-
 	if (mischook_debug & MISCHOOK_DEBUG_DISASTERS)
 		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> SimulationStartDisaster(), wDisasterType = %u.\n", _ReturnAddress(), wSetTriggerDisasterType);
 
-	H_SimulationStartDisaster();
+	GameMain_SimulationStartDisaster();
 }
 
 extern "C" int __stdcall Hook_AddAllInventions(void) {
+	CSimcityAppPrimary *pSCApp;
+
+	pSCApp = &pCSimcityAppThis;
 	if (mischook_debug & MISCHOOK_DEBUG_CHEAT)
 		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> AddAllInventions()\n", _ReturnAddress());
 
 	memset(wCityInventionYears, 0, sizeof(WORD)*MAX_CITY_INVENTION_YEARS);
 	Game_ToolMenuUpdate();
-	Game_SoundPlaySound(&pCSimcityAppThis, SOUND_ZAP);
+	Game_SimcityApp_SoundPlaySound(pSCApp, SOUND_ZAP);
 
 	return 0;
 }
 
-// Hook the middle mouse button as a centering tool shortcut
-extern "C" int __stdcall Hook_CSimcityView_WM_MBUTTONDOWN(UINT nFlags, POINT pt) {
-	__int16 wTileCoords = 0;
-	BYTE bTileX = 0, bTileY = 0;
-	wTileCoords = Game_GetTileCoordsFromScreenCoords((__int16)pt.x, (__int16)pt.y);
-	bTileX = LOBYTE(wTileCoords);
-	bTileY = HIBYTE(wTileCoords);
-
-	if (wTileCoords & 0x8000)
-		return wTileCoords;
-	else {
-		if (nFlags & MK_CONTROL)
-			;
-		else if (nFlags & MK_SHIFT)
-			;
-		else if (GetAsyncKeyState(VK_MENU) < 0) {
-			// useful for tests
-		} else {
-			Game_SoundPlaySound(&pCSimcityAppThis, SOUND_CLICK);
-			Game_CenterOnTileCoords(bTileX, bTileY);
-		}
-	}
-	return wTileCoords;
-}
-
-extern "C" void __stdcall Hook_CSimcityView_WM_LBUTTONDOWN(UINT nFlags, POINT pt) {
-	DWORD *pThis;
+extern "C" void __stdcall Hook_SimcityView_OnLButtonDown(UINT nFlags, POINT pt) {
+	CSimcityView *pThis;
 
 	__asm mov [pThis], ecx
 
 	HWND hWnd;
 	RECT r;
-	const RECT *SCVScrollPosVertRect;
 
 	// pThis[19] = SCVScrollBarVert
 	// pThis[22] = SCVScrollBarVertRectOne
@@ -2575,41 +1076,40 @@ extern "C" void __stdcall Hook_CSimcityView_WM_LBUTTONDOWN(UINT nFlags, POINT pt
 	// pThis[63] = dwSCVLeftMouseDownInGameArea
 	// pThis[67] = dwSCVRightClickMenuOpen
 
-	if (pThis[67])
-		pThis[67] = 0;
-	else if (!PtInRect((const RECT *)&pThis[58], pt)) {
-		Game_GetScreenAreaInfo(pThis, &r);
-		if (PtInRect((const RECT *)&pThis[22], pt)) {
-			if (PtInRect((const RECT *)&pThis[30], pt))
-				Game_CSimCityView_OnVScroll(pThis, SB_LINEDOWN, 0, (DWORD *)pThis[19]);
-			else if (PtInRect((const RECT *)&pThis[26], pt))
-				Game_CSimCityView_OnVScroll(pThis, SB_LINEUP, 0, (DWORD *)pThis[19]);
-			else if (PtInRect((const RECT *)&pThis[34], pt))
-				Game_CSimCityView_OnVScroll(pThis, SB_THUMBTRACK, (__int16)pt.y, (DWORD *)pThis[19]);
+	if (pThis->dwSCVRightClickMenuOpen)
+		pThis->dwSCVRightClickMenuOpen = 0;
+	else if (!PtInRect(&pThis->SCVStaticRect, pt)) {
+		Game_SimcityView_GetScreenAreaInfo(pThis, &r);
+		if (PtInRect(&pThis->SCVScrollBarVertRectOne, pt)) {
+			if (PtInRect(&pThis->SCVScrollBarVertRectThree, pt))
+				Game_SimCityView_OnVScroll(pThis, SB_LINEDOWN, 0, pThis->SCVScrollBarVert);
+			else if (PtInRect(&pThis->SCVScrollBarVertRectTwo, pt))
+				Game_SimCityView_OnVScroll(pThis, SB_LINEUP, 0, pThis->SCVScrollBarVert);
+			else if (PtInRect(&pThis->SCVScrollPosVertRect, pt))
+				Game_SimCityView_OnVScroll(pThis, SB_THUMBTRACK, (__int16)pt.y, pThis->SCVScrollBarVert);
 			else {
 				// This part appears to be non-functional, pressing "Page Down" will rotate the map;
 				// "Page Up" doesn't do anything.
-				SCVScrollPosVertRect = (const RECT *)&pThis[34];
-				if (SCVScrollPosVertRect->top >= pt.y)
-					Game_CSimCityView_OnVScroll(pThis, SB_PAGEUP, 0, (DWORD *)pThis[19]);
+				if (pThis->SCVScrollPosVertRect.top >= pt.y)
+					Game_SimCityView_OnVScroll(pThis, SB_PAGEUP, 0, pThis->SCVScrollBarVert);
 				else
-					Game_CSimCityView_OnVScroll(pThis, SB_PAGEDOWN, 0, (DWORD *)pThis[19]);
+					Game_SimCityView_OnVScroll(pThis, SB_PAGEDOWN, 0, pThis->SCVScrollBarVert);
 			}
 		}
-		else if (!pThis[63]) {
+		else if (!pThis->dwSCVLeftMouseDownInGameArea) {
 			bOverrideTickPlacementHighlight = TRUE;
-			hWnd = SetCapture((HWND)pThis[7]);
-			Game_CWnd_FromHandle(hWnd);
+			hWnd = SetCapture(pThis->m_hWnd);
+			GameMain_Wnd_FromHandle(hWnd);
 			wCurrentTileCoordinates = Game_GetTileCoordsFromScreenCoords((__int16)pt.x, (__int16)pt.y);;
 			if (wCurrentTileCoordinates >= 0) {
 				wTileCoordinateX = (uint8_t)wCurrentTileCoordinates;
-				wPreviousTileCoordinateX = (uint8_t)wCurrentTileCoordinates;
+				wPreviousTileCoordinateX = wTileCoordinateX;
 				wTileCoordinateY = wCurrentTileCoordinates >> 8;
-				wPreviousTileCoordinateY = wCurrentTileCoordinates >> 8;
+				wPreviousTileCoordinateY = wTileCoordinateY;
 				wGameScreenAreaX = (WORD)pt.x;
 				wGameScreenAreaY = (WORD)pt.y;
-				pThis[63] = 1;
-				pThis[62] = 1;
+				pThis->dwSCVLeftMouseDownInGameArea = 1;
+				pThis->dwSCVLeftMouseButtonDown = 1;
 				if (wCityMode)
 					Game_CityToolMenuAction(nFlags, pt);
 				else
@@ -2619,8 +1119,8 @@ extern "C" void __stdcall Hook_CSimcityView_WM_LBUTTONDOWN(UINT nFlags, POINT pt
 	}
 }
 
-extern "C" void __stdcall Hook_CSimcityView_WM_MOUSEMOVE(UINT nFlags, POINT pt) {
-	DWORD *pThis;
+extern "C" void __stdcall Hook_SimcityView_OnMouseMove(UINT nFlags, CMFC3XPoint pt) {
+	CSimcityView *pThis;
 
 	__asm mov [pThis], ecx
 
@@ -2629,8 +1129,8 @@ extern "C" void __stdcall Hook_CSimcityView_WM_MOUSEMOVE(UINT nFlags, POINT pt) 
 	// pThis[64] = dwSCVCursorInGameArea
 	// pThis[65] = SCVMousePoint
 
-	*(POINT *)&pThis[65] = pt;
-	if (pThis[63]) {
+	pThis->SCVMousePoint = pt;
+	if (pThis->dwSCVLeftMouseDownInGameArea) {
 		wCurrentTileCoordinates = Game_GetTileCoordsFromScreenCoords((__int16)pt.x, (__int16)pt.y);
 		if (wCurrentTileCoordinates >= 0) {
 			wTileCoordinateX = (uint8_t)wCurrentTileCoordinates;
@@ -2639,11 +1139,11 @@ extern "C" void __stdcall Hook_CSimcityView_WM_MOUSEMOVE(UINT nFlags, POINT pt) 
 				wPreviousTileCoordinateY != wTileCoordinateY) {
 				if ((int)abs(wGameScreenAreaX - pt.x) > 1 ||
 					((int)abs(wGameScreenAreaY - pt.y) > 1)) {
-					pThis[64] = 1;
+					pThis->dwSCVCursorInGameArea = 1;
 					if ((nFlags & MK_LBUTTON) != 0) {
-						if (pThis[62]) {
+						if (pThis->dwSCVLeftMouseButtonDown) {
 							if (wCityMode) {
-								if ((wCurrentCityToolGroup != TOOL_GROUP_CENTERINGTOOL) || GetAsyncKeyState(VK_MENU) & 0x8000)
+								if ((wCurrentCityToolGroup != CITYTOOL_GROUP_CENTERINGTOOL) || GetAsyncKeyState(VK_MENU) & 0x8000)
 									Game_CityToolMenuAction(nFlags, pt);
 							}
 							else {
@@ -2667,7 +1167,8 @@ extern "C" void __stdcall Hook_CSimcityView_WM_MOUSEMOVE(UINT nFlags, POINT pt) 
 }
 
 extern "C" void __cdecl Hook_MapToolMenuAction(UINT nFlags, POINT pt) {
-	DWORD *pThis;
+	CSimcityAppPrimary *pSCApp;
+	CSimcityView *pThis;
 	__int16 iTileCoords;
 	__int16 iCurrMapToolGroupWithHotKey, iCurrMapToolGroupNoHotKey;
 	__int16 iTileStartX, iTileStartY;
@@ -2689,8 +1190,9 @@ extern "C" void __cdecl Hook_MapToolMenuAction(UINT nFlags, POINT pt) {
 	// The change in this case is to only set pThis[62] to 0 when the iCurrToolGroupA is not
 	// 'Center Tool', this will then allow it to pass-through to the WM_MOUSEMOVE call.
 
-	pThis = Game_PointerToCSimcityViewClass(&pCSimcityAppThis);	// TODO: is this necessary or can we just dereference pCSimcityView?
-	Game_TileHighlightUpdate(pThis);
+	pSCApp = &pCSimcityAppThis;
+	pThis = Game_SimcityApp_PointerToCSimcityViewClass(pSCApp);	// TODO: is this necessary or can we just dereference pCSimcityView?
+	Game_SimcityView_TileHighlightUpdate(pThis);
 	iTileStartX = 400;
 	iTileStartY = 400;
 	iCurrMapToolGroupNoHotKey = wCurrentMapToolGroup;
@@ -2698,7 +1200,7 @@ extern "C" void __cdecl Hook_MapToolMenuAction(UINT nFlags, POINT pt) {
 	if ((nFlags & MK_CONTROL) != 0)
 		iCurrMapToolGroupWithHotKey = MAPTOOL_GROUP_CENTERINGTOOL;
 	if (iCurrMapToolGroupWithHotKey != MAPTOOL_GROUP_CENTERINGTOOL)
-		pThis[62] = 0;
+		pThis->dwSCVLeftMouseButtonDown = 0;
 	do {
 		iTileCoords = Game_GetTileCoordsFromScreenCoords((__int16)pt.x, (__int16)pt.y);
 		if (iTileCoords < 0)
@@ -2708,14 +1210,14 @@ extern "C" void __cdecl Hook_MapToolMenuAction(UINT nFlags, POINT pt) {
 		if (iTileTargetX >= GAME_MAP_SIZE || iTileTargetY < 0)
 			break;
 		if ((nFlags & MK_SHIFT) != 0 && iCurrMapToolGroupWithHotKey != MAPTOOL_GROUP_TREES && iCurrMapToolGroupWithHotKey != MAPTOOL_GROUP_FOREST) {
-			pThis[62] = 1;
+			pThis->dwSCVLeftMouseButtonDown = 1;
 			break;
 		}
 		if (iTileStartX != iTileTargetX || iTileStartY != iTileTargetY) {
 			switch (iCurrMapToolGroupWithHotKey) {
 			case MAPTOOL_GROUP_BULLDOZER: // Bulldozing, only relevant in the CityToolMenuAction code it seems.
 				Game_UseBulldozer(iTileTargetX, iTileTargetY);
-				Game_UpdateAreaPortionFill(pThis);
+				Game_SimcityView_UpdateAreaPortionFill(pThis);
 				break;
 			case MAPTOOL_GROUP_RAISETERRAIN: // Raise Terrain
 				Game_MapToolRaiseTerrain(iTileTargetX, iTileTargetY);
@@ -2732,20 +1234,20 @@ extern "C" void __cdecl Hook_MapToolMenuAction(UINT nFlags, POINT pt) {
 			case MAPTOOL_GROUP_WATER: // Place Water
 			case MAPTOOL_GROUP_STREAM: // Place Stream
 				if (iCurrMapToolGroupWithHotKey == MAPTOOL_GROUP_WATER) {
-					if (!Game_MapToolPlaceWater(iTileTargetX, iTileTargetY) || Game_MapToolSoundTrigger(dwAudioHandle))
+					if (!Game_MapToolPlaceWater(iTileTargetX, iTileTargetY) || Game_Sound_MapToolSoundTrigger(pSCApp->SCASNDLayer))
 						break;
 				}
 				else {
 					Game_MapToolPlaceStream(iTileTargetX, iTileTargetY, 100);
-					if (Game_MapToolSoundTrigger(dwAudioHandle))
+					if (Game_Sound_MapToolSoundTrigger(pSCApp->SCASNDLayer))
 						break;
 				}
-				Game_SoundPlaySound(&pCSimcityAppThis, SOUND_FLOOD);
+				Game_SimcityApp_SoundPlaySound(pSCApp, SOUND_FLOOD);
 				break;
 			case MAPTOOL_GROUP_TREES: // Place Tree
 			case MAPTOOL_GROUP_FOREST: // Place Forest
-				if (!Game_MapToolSoundTrigger(dwAudioHandle))
-					Game_SoundPlaySound(&pCSimcityAppThis, SOUND_PLOP);
+				if (!Game_Sound_MapToolSoundTrigger(pSCApp->SCASNDLayer))
+					Game_SimcityApp_SoundPlaySound(pSCApp, SOUND_PLOP);
 				if (iCurrMapToolGroupWithHotKey == MAPTOOL_GROUP_TREES)
 					Game_MapToolPlaceTree(iTileTargetX, iTileTargetY);
 				else
@@ -2753,12 +1255,12 @@ extern "C" void __cdecl Hook_MapToolMenuAction(UINT nFlags, POINT pt) {
 				break;
 			case MAPTOOL_GROUP_CENTERINGTOOL: // Center Tool
 				Game_GetScreenCoordsFromTileCoords(iTileTargetX, iTileTargetY, &wNewScreenPointX, &wNewScreenPointY);
-				Game_SoundPlaySound(&pCSimcityAppThis, SOUND_CLICK);
-				dwIsZoomed = *(DWORD *)((char *)pThis + 322);
+				Game_SimcityApp_SoundPlaySound(pSCApp, SOUND_CLICK);
+				dwIsZoomed = pThis->dwSCVIsZoomed;
 				if (dwIsZoomed)
-					Game_CenterOnNewScreenCoordinates(pThis, wScreenPointX - (wNewScreenPointX >> 1), wScreenPointY - (wNewScreenPointY >> 1));
+					Game_SimcityView_CenterOnNewScreenCoordinates(pThis, wScreenPointX - (wNewScreenPointX >> 1), wScreenPointY - (wNewScreenPointY >> 1));
 				else
-					Game_CenterOnNewScreenCoordinates(pThis, wScreenPointX - wNewScreenPointX, wScreenPointY - wNewScreenPointY);
+					Game_SimcityView_CenterOnNewScreenCoordinates(pThis, wScreenPointX - wNewScreenPointX, wScreenPointY - wNewScreenPointY);
 				break;
 			default:
 				break;
@@ -2767,39 +1269,36 @@ extern "C" void __cdecl Hook_MapToolMenuAction(UINT nFlags, POINT pt) {
 		if (iCurrMapToolGroupWithHotKey >= MAPTOOL_GROUP_RAISETERRAIN && iCurrMapToolGroupWithHotKey <= MAPTOOL_GROUP_LEVELTERRAIN)
 			break;
 		else if (iCurrMapToolGroupWithHotKey == MAPTOOL_GROUP_CENTERINGTOOL) {
-			Game_UpdateAreaCompleteColorFill(pThis);
-			hWnd = (HWND)pThis[7];
+			Game_SimcityView_UpdateAreaCompleteColorFill(pThis);
+			hWnd = pThis->m_hWnd;
 			UpdateWindow(hWnd);
 			break;
 		}
-		Game_UpdateAreaPortionFill(pThis);
+		Game_SimcityView_UpdateAreaPortionFill(pThis);
 		iTileStartX = iTileTargetX;
 		iTileStartY = iTileTargetY;
-		hWnd = (HWND)pThis[7];
+		hWnd = pThis->m_hWnd;
 		UpdateWindow(hWnd);
-	} while (Game_CSimcityViewMouseMoveOrLeftClick(pThis, &pt));
-	if (iCurrMapToolGroupNoHotKey != iCurrMapToolGroupWithHotKey) {
+	} while (Game_GetGameAreaMouseActivity(pThis, &pt));
+	if (iCurrMapToolGroupNoHotKey != iCurrMapToolGroupWithHotKey)
 		wCurrentCityToolGroup = iCurrMapToolGroupNoHotKey;
-	}
 }
 
-extern "C" void __stdcall Hook_LoadCursorResources() {
-	DWORD *pThis;
+extern "C" void __stdcall Hook_SimcityApp_LoadCursorResources() {
+	CSimcityAppPrimary *pThis;
 
 	__asm mov[pThis], ecx
-
-	void(__thiscall *H_LoadCursorResources)(void *) = (void(__thiscall *)(void *))0x4255A0;
 
 	HDC hDC;
 
 	hDC = GetDC(0);
-	pThis[57] = GetDeviceCaps(hDC, HORZRES);
+	pThis->iSCAGDCHorzRes = GetDeviceCaps(hDC, HORZRES);
 	ReleaseDC(0, hDC);
-	H_LoadCursorResources(pThis);
+	GameMain_SimcityApp_LoadCursorResources(pThis);
 }
 
 extern "C" int __stdcall Hook_StartupGraphics() {
-	HDC hDC_One, hDC_Two;
+	HDC hDC;
 	int iPlanes, iBitsPixel, iBitRate;
 	PALETTEENTRY *p_pEnt;
 	colStruct *pCol;
@@ -2807,36 +1306,25 @@ extern "C" int __stdcall Hook_StartupGraphics() {
 	DWORD pvOut;
 	LOGPAL plPal;
 
-	HDC &hDC_Global = *(HDC *)0x4EA03C;
-	HPALETTE &hLoColor = *(HPALETTE *)0x4EA044;
-	BOOL &bHiColor = *(BOOL *)0x4EA048;
-	BOOL &bLoColor = *(BOOL *)0x4EA04C;
-	BOOL &bPaletteSet = *(BOOL *)0x4EA050;
-	testColStruct *rgbLoColor = (testColStruct *)0x4EA058;
-	testColStruct *rgbNormalColor = (testColStruct *)0x4EA0B8;
-
 	plPal.wVersion = 0x300;
 	plPal.wNumPalEnts = LOCOLORCNT;
 	memset(plPal.pPalEnts, 0, sizeof(plPal.pPalEnts));
-	hDC_One = 0;
+	hDC = GetDC(0);
 	if (!hDC_Global) {
-		hDC_One = GetDC(0);
-		hDC_Global = CreateCompatibleDC(hDC_One);
+		hDC_Global = CreateCompatibleDC(hDC);
 	}
 
-	hDC_Two = GetDC(0);
-	iPlanes = GetDeviceCaps(hDC_Two, PLANES);
-	iBitsPixel = GetDeviceCaps(hDC_Two, BITSPIXEL);
-	if (iForcedBits > 0)
-		iBitRate = iForcedBits;
-	else
-		iBitRate = iBitsPixel * iPlanes;
+	iPlanes = GetDeviceCaps(hDC, PLANES);
+	iBitsPixel = GetDeviceCaps(hDC, BITSPIXEL);
+	iBitRate = (iForcedBits > 0) ? iForcedBits : iBitsPixel * iPlanes;
 
+	bHiColor = TRUE;
 	if (iBitRate < 16) {
+		bHiColor = FALSE;
 		if (iBitRate <= 4) {
 			bLoColor = TRUE;
 			pvIn = SETCOLORTABLE;
-			if (Escape(hDC_Two, QUERYESCSUPPORT, 4, (LPCSTR)&pvIn, 0)) {
+			if (Escape(hDC, QUERYESCSUPPORT, 4, (LPCSTR)&pvIn, 0)) {
 				p_pEnt = plPal.pPalEnts;
 				pCol = rgbLoColor;
 				do {
@@ -2846,20 +1334,19 @@ extern "C" int __stdcall Hook_StartupGraphics() {
 					cT.Index = pCol->wPos;
 					cT.rgb = RGB(pCol->pe.peRed, pCol->pe.peGreen, pCol->pe.peBlue);
 
-					Escape(hDC_Two, SETCOLORTABLE, 6, (LPCSTR)&cT, &pvOut);
+					Escape(hDC, SETCOLORTABLE, 6, (LPCSTR)&cT, &pvOut);
 					p_pEnt[pCol->wPos].peRed = pCol->pe.peRed;
 					p_pEnt[pCol->wPos].peGreen = pCol->pe.peGreen;
 					p_pEnt[pCol->wPos].peBlue = pCol->pe.peBlue;
 					p_pEnt[pCol->wPos].peFlags = 1;
 					pCol++;
 				} while ( pCol->wPos < LOCOLORCNT );
-				bPaletteSet = 1;
+				bPaletteSet = TRUE;
 				SendMessageA(HWND_BROADCAST, WM_SYSCOLORCHANGE, 0, 0);
 			}
 			else {
 				p_pEnt = plPal.pPalEnts;
 				pCol = rgbNormalColor;
-				bPaletteSet = 0;
 				do {
 					p_pEnt[pCol->wPos].peRed = pCol->pe.peRed;
 					p_pEnt[pCol->wPos].peGreen = pCol->pe.peGreen;
@@ -2867,109 +1354,62 @@ extern "C" int __stdcall Hook_StartupGraphics() {
 					p_pEnt[pCol->wPos].peFlags = 1;
 					pCol++;
 				} while ( pCol->wPos < LOCOLORCNT );
+				bPaletteSet = FALSE;
 			}
 			hLoColor = CreatePalette((const LOGPALETTE *)&plPal);
 		}
 	}
-	else {
-		bHiColor = TRUE;
-	}
 
-	return ReleaseDC(0, hDC_Two);
-}
-
-extern "C" void __stdcall Hook_CityToolBarToolMenuDisable() {
-	DWORD *pThis;
-
-	__asm mov[pThis], ecx
-
-	void(__thiscall *H_CityToolBarToolMenuDisable)(void *) = (void(__thiscall *)(void *))0x4237F0;
-
-	ToggleFloatingStatusDialog(FALSE);
-
-	H_CityToolBarToolMenuDisable(pThis);
-}
-
-extern "C" void __stdcall Hook_CityToolBarToolMenuEnable() {
-	DWORD *pThis;
-
-	__asm mov[pThis], ecx
-
-	void(__thiscall *H_CityToolBarToolMenuEnable)(void *) = (void(__thiscall *)(void *))0x423860;
-
-	ToggleFloatingStatusDialog(TRUE);
-
-	H_CityToolBarToolMenuEnable(pThis);
+	return ReleaseDC(0, hDC);
 }
 
 extern "C" void __stdcall Hook_ShowViewControls() {
-	void(__thiscall *H_MainFrameToggleStatusControlBar)(void *, BOOL) = (void(__thiscall *)(void *, BOOL))0x4021A8;
-	void(__thiscall *H_CFrameWndRecalcLayout)(void *, int) = (void(__thiscall *)(void *, int))0x4BB23A;
+	CSimcityAppPrimary *pSCApp;
+	CMainFrame *pMainFrm;
+	CSimcityView *pSCView;
+	CMFC3XScrollBar *pSCVScrollBarHorz;
+	CMFC3XScrollBar *pSCVScrollBarVert;
+	CMFC3XStatic *pSCVStatic;
 
-	int &iSCAProgramStep = *(int *)0x4C7334;
-	BOOL &bRedraw = *(BOOL *)0x4E62B4;
-
-	DWORD *pMainFrm;
-	DWORD *pSCView;
-	DWORD *pSCVScrollBarHorz;
-	DWORD *pSCVScrollBarVert;
-	DWORD *pSCVStatic;
-
-	pMainFrm = (DWORD *)pCWndRootWindow;
-	pSCView = Game_PointerToCSimcityViewClass(&pCSimcityAppThis);
-	pSCVScrollBarHorz = (DWORD *)pSCView[20];
-	pSCVScrollBarVert = (DWORD *)pSCView[19];
-	pSCVStatic = (DWORD *)pSCView[21];
+	pSCApp = &pCSimcityAppThis;
+	pMainFrm = (CMainFrame *)pSCApp->m_pMainWnd;
+	pSCView = Game_SimcityApp_PointerToCSimcityViewClass(pSCApp);
+	pSCVScrollBarHorz = pSCView->SCVScrollBarHorz;
+	pSCVScrollBarVert = pSCView->SCVScrollBarVert;
+	pSCVStatic = pSCView->SCVStaticOne;
 	if (!bRedraw) {
 		bRedraw = TRUE;
-		if (iSCAProgramStep == ONIDLE_STATE_RETURN_12 || !wCityMode)
-			H_MainFrameToggleStatusControlBar(pMainFrm, FALSE);
+		if (pSCApp->iSCAProgramStep == ONIDLE_STATE_EDITNEWMAP_RETURN || !wCityMode)
+			Game_MainFrame_ToggleStatusControlBar(pMainFrm, FALSE);
 		else {
 			if (!CanUseFloatingStatusDialog())
-				H_MainFrameToggleStatusControlBar(pMainFrm, TRUE);
+				Game_MainFrame_ToggleStatusControlBar(pMainFrm, TRUE);
 		}
-		H_CFrameWndRecalcLayout(pMainFrm, TRUE);
-		ShowWindow((HWND)pSCVScrollBarHorz[7], SW_SHOWNORMAL);
-		ShowWindow((HWND)pSCVScrollBarVert[7], SW_SHOWNORMAL);
-		ShowWindow((HWND)pSCVStatic[7], SW_SHOWNORMAL);
+		GameMain_FrameWnd_RecalcLayout(pMainFrm, TRUE);
+		ShowWindow(pSCVScrollBarHorz->m_hWnd, SW_SHOWNORMAL);
+		ShowWindow(pSCVScrollBarVert->m_hWnd, SW_SHOWNORMAL);
+		ShowWindow(pSCVStatic->m_hWnd, SW_SHOWNORMAL);
 	}
 }
 
-extern "C" void __stdcall Hook_MainFrameUpdateSections() {
-	DWORD *pThis;
+extern "C" void __stdcall Hook_MainFrame_UpdateSections() {
+	CMainFrame *pThis;
 
 	__asm mov[pThis], ecx
 
-	void(__thiscall *H_CCityToolBar_RefreshToolBar)(void *) = (void(__thiscall *)(void *))0x401000;
-	void(__thiscall *H_CMapToolBarResetControls)(void *) = (void(__thiscall *)(void *))0x401140;
-	UINT(__thiscall *H_CMyToolBarGetButtonStyle)(void *, int) = (UINT(__thiscall *)(void *, int))0x401235;
-	void(__thiscall *H_CMainFrameDisableCityToolBarButton)(void *, int) = (void(__thiscall *)(void *, int))0x4016DB;
-	void(__thiscall *H_CMyToolBarSetButtonStyle)(void *, int nIndex, UINT nStyle) = (void(__thiscall *)(void *, int, UINT))0x402306;
-	void(__thiscall *H_CMyToolBarInvalidateButton)(void *, int) = (void(__thiscall *)(void *, int))0x4029C8;
-	void(__thiscall *H_CCityToolBarUpdateControls)(void *, BOOL) = (void(__thiscall *)(void *, BOOL))0x402A68;
-	CMFC3XString *(__thiscall *H_CStringOperatorSet)(CMFC3XString *, char *) = (CMFC3XString *(__thiscall *)(CMFC3XString *, char *))0x4A2E6A;
-	DWORD *(__stdcall *H_CMenuFromHandle)(HMENU) = (DWORD *(__stdcall *)(HMENU))0x4A7427;
-	int(__thiscall *H_CMenuAttach)(void *, HMENU) = (int(__thiscall *)(void *, HMENU))0x4A7483;
-	BOOL(__thiscall *H_CMenuDestroyMenu)(void *) = (BOOL(__thiscall *)(void *))0x4A74FB;
-
-	CMFC3XString *cityToolGroupStrings = (CMFC3XString *)0x4C94C8;
-	HINSTANCE &hGameModule = *(HINSTANCE *)0x4CE8C8;
-	int *dwGrantedItems = (int *)0x4E9A10;
-	DWORD *DisplayLayer = (DWORD *)0x4E9E48;
-
 	HWND hDlgItem;
-	DWORD *pMapToolBar;
-	DWORD *pCityToolBar;
+	CMapToolBar *pMapToolBar;
+	CCityToolBar *pCityToolBar;
 	int iCityToolBarButton;
 	UINT ButtonStyle;
 	int nLayer;
 	UINT nStyle;
 	int nIndex;
-	DWORD *pMenu;
 	HMENU hMenu;
+	CMFC3XMenu *pMenu;
 	int nPos;
 	HMENU hSubMenu;
-	DWORD *pSubMenu;
+	CMFC3XMenu *pSubMenu;
 	int nMenuItemCount;
 	int nSubMenuItemCount;
 	char szString[960];
@@ -2980,65 +1420,73 @@ extern "C" void __stdcall Hook_MainFrameUpdateSections() {
 	int nGranted;
 	int nReward;
 	unsigned nRewardBit;
-	CMFC3XString *cityToolString;
-	CMFC3XString *pTargMFCString;
+	CMFC3XString *citySubToolStrings;
 
-	hDlgItem = GetDlgItem((HWND)pThis[68], 120); // Status - GoTo button.
-	pMapToolBar = &pThis[233];
+	hDlgItem = GetDlgItem(pThis->dwMFStatusControlBar.m_hWnd, 120); // Status - GoTo button.
+	pMapToolBar = &pThis->dwMFMapToolBar;
 	if (!wCityMode)
-		H_CMapToolBarResetControls(pMapToolBar);
-	pCityToolBar = &pThis[102];
-	H_CCityToolBarUpdateControls(pCityToolBar, FALSE);
+		Game_MapToolBar_ResetControls(pMapToolBar);
+	pCityToolBar = &pThis->dwMFCityToolBar;
+	Game_CityToolBar_UpdateControls(pCityToolBar, FALSE);
 	ToggleGotoButton(hDlgItem, FALSE);
 	if (wCityMode == GAME_MODE_CITY) {
-		if (wCurrentCityToolGroup == TOOL_GROUP_DISPATCH) {
-			wCurrentCityToolGroup = TOOL_GROUP_CENTERINGTOOL;
-			H_CCityToolBarUpdateControls(pCityToolBar, TRUE);
+		if (wCurrentCityToolGroup == CITYTOOL_GROUP_DISPATCH) {
+			wCurrentCityToolGroup = CITYTOOL_GROUP_CENTERINGTOOL;
+			Game_CityToolBar_UpdateControls(pCityToolBar, FALSE);
 		}
-		H_CMainFrameDisableCityToolBarButton(pThis, 2);
-		H_CMyToolBarInvalidateButton(pCityToolBar, 2);
+		Game_MainFrame_DisableCityToolBarButton(pThis, CITYTOOL_BUTTON_DISPATCH);
+		Game_MyToolBar_InvalidateButton(pCityToolBar, CITYTOOL_BUTTON_DISPATCH);
 	}
 	else if (wCityMode != GAME_MODE_DISASTER)
 		goto REFRESHMENUGRANTS;
 	if (wCityMode == GAME_MODE_DISASTER)
 		ToggleGotoButton(hDlgItem, TRUE);
-	if (!dwGrantedItems[5]) {
-		H_CMainFrameDisableCityToolBarButton(pThis, 5);
-		H_CMyToolBarInvalidateButton(pCityToolBar, 5);
+	if (!dwGrantedItems[CITYTOOL_GROUP_REWARDS]) {
+		Game_MainFrame_DisableCityToolBarButton(pThis, CITYTOOL_BUTTON_REWARDS);
+		Game_MyToolBar_InvalidateButton(pCityToolBar, CITYTOOL_BUTTON_REWARDS);
 	}
 	iCityToolBarButton = wCurrentCityToolGroup;
-	if (wCurrentCityToolGroup > TOOL_GROUP_SIGNS)
+	// Adjust here; this used to check to see whether
+	// wCurrentCityToolGroup is greater than CITYTOOL_GROUP_SIGNS
+	// however during disaster cases.. if the query button was selected
+	// and the disaster ended, it would end up highlighting the zoom in button.
+	// 
+	// This behaviour has been confirmed in the base game and interactive demo
+	// in order to confirm the apparent buggy nature (unless one wanted to
+	// highlight the zoom in button for whatever reason without changing the
+	// underlying tool).
+	if (wCurrentCityToolGroup > CITYTOOL_GROUP_QUERY)
 		iCityToolBarButton = wCurrentCityToolGroup + 4;
-	ButtonStyle = H_CMyToolBarGetButtonStyle(pCityToolBar, iCityToolBarButton);
-	H_CMyToolBarSetButtonStyle(pCityToolBar, iCityToolBarButton, ButtonStyle | 0x100);
+	ButtonStyle = Game_MyToolBar_GetButtonStyle(pCityToolBar, iCityToolBarButton);
+	Game_MyToolBar_SetButtonStyle(pCityToolBar, iCityToolBarButton, ButtonStyle | TBBS_CHECKED);
 	for (nLayer = LAYER_UNDERGROUND; nLayer < LAYER_COUNT; ++nLayer) {
 		if (DisplayLayer[nLayer])
-			nStyle = 0x102;
+			nStyle = (TBBS_CHECKED|TBBS_CHECKBOX);
 		else
-			nStyle = 2;
-		nIndex = 0x20 - nLayer;
-		H_CMyToolBarSetButtonStyle(pCityToolBar, nIndex, nStyle);
+			nStyle = TBBS_CHECKBOX;
+		nIndex = CITYTOOL_BUTTON_DISPLAYUNDERGROUND - nLayer;
+		Game_MyToolBar_SetButtonStyle(pCityToolBar, nIndex, nStyle);
 	}
 REFRESHMENUGRANTS:
-	pMenu = &pThis[159];
-	H_CMenuDestroyMenu(pMenu);
+	pMenu = &pCityToolBar->dwCTBMenuOne;
+	GameMain_Menu_DestroyMenu(pMenu);
 	hMenu = LoadMenuA(hGameModule, (LPCSTR)136);
-	H_CMenuAttach(pMenu, hMenu);
-	for (nPos = TOOL_GROUP_BULLDOZER; nPos < TOOL_GROUP_SIGNS; ++nPos) {
+	GameMain_Menu_Attach(pMenu, hMenu);
+	for (nPos = CITYTOOL_BUTTON_BULLDOZER; nPos < CITYTOOL_BUTTON_SIGNS; ++nPos) {
 		if (dwGrantedItems[nPos]) {
-			hSubMenu = GetSubMenu((HMENU)pMenu[1], nPos);
-			pSubMenu = H_CMenuFromHandle(hSubMenu);
-			nMenuItemCount = GetMenuItemCount((HMENU)pSubMenu[1]);
+			hSubMenu = GetSubMenu(pMenu->m_hMenu, nPos);
+			pSubMenu = GameMain_Menu_FromHandle(hSubMenu);
+			nMenuItemCount = GetMenuItemCount(pSubMenu->m_hMenu);
 			nSubMenuItemCount = nMenuItemCount;
 			if (nMenuItemCount > 0) {
 				pString = szString;
 				pUID = uIDs;
 				do {
-					*pUID++ = GetMenuItemID((HMENU)pSubMenu[1], 0);
+					*pUID++ = GetMenuItemID(pSubMenu->m_hMenu, 0);
 					pTargString = pString;
 					pString += 80;
-					GetMenuStringA((HMENU)pSubMenu[1], 0, pTargString, 80, MF_BYPOSITION);
-					DeleteMenu((HMENU)pSubMenu[1], 0, MF_BYPOSITION);
+					GetMenuStringA(pSubMenu->m_hMenu, 0, pTargString, 80, MF_BYPOSITION);
+					DeleteMenu(pSubMenu->m_hMenu, 0, MF_BYPOSITION);
 					--nSubMenuItemCount;
 				} while (nSubMenuItemCount);
 			}
@@ -3047,19 +1495,18 @@ REFRESHMENUGRANTS:
 			if (nMenuItemCount > 0) {
 				pUID = uIDs;
 				pString = szString;
-				// calculation here is citytoolbuttongroup * maxsubtools (12 per group), this sets it to TOOL_GROUP_REWARDS.
-				cityToolString = &cityToolGroupStrings[TOOL_GROUP_REWARDS*MAX_CITY_SUBTOOLS];
+				// calculation here is citytoolbuttongroup * maxmenutools, this sets it to CITYTOOL_GROUP_REWARDS.
+				citySubToolStrings = &cityToolGroupStrings[CITYTOOL_GROUP_REWARDS*MAX_CITY_MENUTOOLS];
 				do {
 					// (1 << nReward) bit-shifted result of the nReward count.
 					nRewardBit = (1 << nReward);
 					if ((nRewardBit & dwGrantedItems[nPos]) != 0) {
-						if (nPos == TOOL_GROUP_REWARDS && !nGranted) {
-							pThis[220] = nReward;
+						if (nPos == CITYTOOL_BUTTON_REWARDS && !nGranted) {
+							pCityToolBar->dwCTToolSelection[CITYTOOL_GROUP_REWARDS] = nReward;
 							nGranted = 1;
-							pTargMFCString = (CMFC3XString *)&pCityToolBar[74];
-							H_CStringOperatorSet(pTargMFCString, cityToolString[nReward].m_pchData);
+							GameMain_String_OperatorCopy(&pCityToolBar->dwCTBString[CITYTOOL_GROUP_REWARDS], &citySubToolStrings[nReward]);
 						}
-						AppendMenuA((HMENU)pSubMenu[1], 0, *pUID, pString);
+						AppendMenuA(pSubMenu->m_hMenu, 0, *pUID, pString);
 					}
 					++pUID;
 					pString += 80;
@@ -3068,7 +1515,137 @@ REFRESHMENUGRANTS:
 			}
 		}
 	}
-	H_CCityToolBar_RefreshToolBar(pCityToolBar);
+	Game_CityToolBar_RefreshToolBar(pCityToolBar);
+}
+
+// Hook for the scenario description popup
+__declspec(naked) void Hook_402B4E(const char* szDescription, int a2, void* cWnd) {
+	__asm push ecx
+
+	if (szDescription && strlen(szDescription))
+		scScenarioDescription = szDescription;
+	dwScenarioStartDays = dwCityDays;
+	dwScenarioStartPopulation = dwCityPopulation;
+	wScenarioStartXVALTiles = wCityDevelopedTiles;
+	dwScenarioStartTrafficDivisor = pBudgetArr[10].iCurrentCosts + pBudgetArr[11].iCurrentCosts + pBudgetArr[12].iCurrentCosts + 1;		// XXX - this should be a descriptive macro
+
+	__asm pop ecx
+	GAMEJMP(0x42DC20);
+}
+
+static BOOL L_OnCmdMsg(CMFC3XWnd *pThis, UINT nID, int nCode, void *pExtra, void *pHandler, void *dwRetAddr) {
+	// Normally internally there'd be the class hierarchy regarding inheritence
+	// (which isn't present here).
+	//
+	// 0x4B9080 - with CFrameWnd - use CFrameWnd::OnCmdMsg
+	//
+	// All other flagged address references have thus far gracefully
+	// gone to CCmdTarget::OnCmdMsg (which is the non-overridden virtual call).
+	//
+	// If others also require specific handling, checkout the returned address
+	// and see where it specifically happens to originate.
+	if ((DWORD)dwRetAddr == 0x4B9080) {
+		if (nCode == _CN_COMMAND) {
+			switch (nID) {
+			case IDM_GAME_OPTIONS_SC2KFIXSETTINGS:
+				ShowSettingsDialog();
+				return TRUE;
+
+			case IDM_GAME_OPTIONS_MODCONFIG:
+				ShowModSettingsDialog();
+				return TRUE;
+
+			case IDM_DEBUG_MILITARY_DECLINED:
+				ProposeMilitaryBaseDecline();
+				return TRUE;
+
+			case IDM_DEBUG_MILITARY_AIRFORCE:
+				ProposeMilitaryBaseAirForceBase();
+				return TRUE;
+
+			case IDM_DEBUG_MILITARY_ARMYBASE:
+				ProposeMilitaryBaseArmyBase();
+				return TRUE;
+
+			case IDM_DEBUG_MILITARY_NAVALYARD:
+				ProposeMilitaryBaseNavalYard();
+				return TRUE;
+
+			case IDM_DEBUG_MILITARY_MISSILESILOS:
+				ProposeMilitaryBaseMissileSilos();
+				return TRUE;
+
+			case IDM_GAME_WINDOWS_SCENARIOGOALS:
+				ShowScenarioStatusDialog();
+				return TRUE;
+
+			case IDM_GAME_FILE_RELOADDEFAULTTILESET:
+				ReloadDefaultTileSet_SC2K1996();
+				return TRUE;
+			}
+		}
+		else if (nCode == _CN_COMMAND_UI) {
+			// As far as potential handling here goes - tread carefully;
+			//ConsoleLog(LOG_DEBUG, "CFrameWnd::OnCmdMsg(0x%06X, %u, %d, 0x%06X, 0x%06X) - _CN_COMMAND_UI\n", pThis, nID, nCode, pExtra, pHandler);
+		}
+		return GameMain_FrameWnd_OnCmdMsg((CMFC3XFrameWnd *)pThis, nID, nCode, pExtra, pHandler);
+	}
+	if ((DWORD)dwRetAddr == 0x4A4BB2) {
+		if (nCode == _CN_COMMAND) {
+			switch (nID) {
+				// This is the 'sc2kfix Settings' entry in the main dialog.
+			case IDC_GAME_MAIN_SC2KFIXSETTINGS:
+				ShowSettingsDialog();
+				return TRUE;
+			}
+		}
+	}
+	else {
+		// Leaving this particular debug notice enabled without any flags.
+		// It is particularly important that this is picked up if any
+		// strange cases appear. Thus far it hasn't.. but you never know.
+		ConsoleLog(LOG_DEBUG, "?::OnCmdMsg(0x%06X, %u, %d, 0x%06X, 0x%06X) - 0x%06X\n", pThis, nID, nCode, pExtra, pHandler, dwRetAddr);
+	}
+
+	return GameMain_CmdTarget_OnCmdMsg(pThis, nID, nCode, pExtra, pHandler);
+}
+
+extern "C" BOOL __stdcall Hook_Wnd_OnCommand(WPARAM wParam, LPARAM lParam) {
+	CMFC3XWnd *pThis;
+
+	__asm mov[pThis], ecx
+
+	CMFC3XWnd *pWndHandle;
+	CMFC3XTestCmdUI testCmd;
+
+	// AFX_THREAD_STATE -> DWORD:
+	// var[40] -> m_hLockoutNotifyWindow
+
+	UINT nID = LOWORD(wParam);
+	HWND hWndCtrl = (HWND)lParam;
+	int nCode = HIWORD(wParam);
+
+	if (nID == 0)
+		return FALSE;
+
+	if (hWndCtrl == NULL) {
+		GameMain_TestCmdUI_Construct(&testCmd);
+		testCmd.m_nID = nID;
+		L_OnCmdMsg(pThis, nID, _CN_COMMAND_UI, &testCmd, 0, _ReturnAddress());
+		if (!testCmd.m_bEnabled)
+			return TRUE;
+		nCode = _CN_COMMAND;
+	}
+	else {
+		if (GameMain_AfxGetThreadState()->m_hLockoutNotifyWindow == pThis->m_hWnd)
+			return TRUE;
+
+		pWndHandle = GameMain_Wnd_FromHandlePermanent(hWndCtrl);
+		if (pWndHandle != NULL && GameMain_Wnd_SendChildNotifyLastMsg(pWndHandle, 0))
+			return TRUE;
+	}
+
+	return L_OnCmdMsg(pThis, nID, nCode, 0, 0, _ReturnAddress());
 }
 
 // Placeholder.
@@ -3078,25 +1655,21 @@ void ShowModSettingsDialog(void) {
 
 // Install hooks and run code that we only want to do for the 1996 Special Edition SIMCITY.EXE.
 // This should probably have a better name. And maybe be broken out into smaller functions.
+//
+// UPDATE 2025-08-15 (araxestroy): Working on breaking this out nicely. It's not going well.
 void InstallMiscHooks_SC2K1996(void) {
-	InstallRegistryPathingHooks_SC2K1996();
-
-	// Install LoadStringA hook
+	// Install critical Windows API hooks
 	*(DWORD*)(0x4EFBE8) = (DWORD)Hook_LoadStringA;
-
-	// Install LoadMenuA hook
 	*(DWORD*)(0x4EFDCC) = (DWORD)Hook_LoadMenuA;
-	*(DWORD*)(0x4EFE58) = (DWORD)Hook_EnableMenuItem;
 	*(DWORD*)(0x4EFC64) = (DWORD)Hook_DialogBoxParamA;
-
-	// Install ShowWindow hook
 	*(DWORD*)(0x4EFE70) = (DWORD)Hook_ShowWindow;
+	*(DWORD*)(0x4EFCE8) = (DWORD)Hook_DefWindowProcA;
 
-	// Only install this hook if SMK is enabled.
-	if (smk_enabled) {
-		// Install Smacker function hooks
-		*(DWORD*)(0x4EFF00) = (DWORD)Hook_SmackOpen;
-	}
+	// Install Smacker hooks
+	GetSMKFuncs();
+
+	// Install registry pathing hooks
+	InstallRegistryPathingHooks_SC2K1996();
 
 	// Hook into both AfxMessageBox functions
 	VirtualProtect((LPVOID)0x4B232F, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
@@ -3106,11 +1679,7 @@ void InstallMiscHooks_SC2K1996(void) {
 
 	// Hook into the CFileDialog::DoModal function
 	VirtualProtect((LPVOID)0x49FE18, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x49FE18, Hook_FileDialogDoModal);
-
-	// Hook into the movie checking function.
-	VirtualProtect((LPVOID)0x402360, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x402360, Hook_MovieCheck);
+	NEWJMP((LPVOID)0x49FE18, Hook_FileDialog_DoModal);
 
 	// Fix the sign fonts
 	VirtualProtect((LPVOID)0x4E7267, 1, PAGE_EXECUTE_READWRITE, &dwDummy);
@@ -3122,7 +1691,9 @@ void InstallMiscHooks_SC2K1996(void) {
 
 	// Hook CSimcityApp::OnQuit
 	VirtualProtect((LPVOID)0x401753, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x401753, Hook_SimcityAppOnQuit);
+	NEWJMP((LPVOID)0x401753, Hook_SimcityApp_OnQuit);
+
+	InstallSpriteAndTileSetHooks_SC2K1996();
 
 	// Hook GameDoIdleUpkeep
 	VirtualProtect((LPVOID)0x402A3B, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
@@ -3145,125 +1716,31 @@ void InstallMiscHooks_SC2K1996(void) {
 	*(DWORD*)0x43F429 = 50000000; // Water
 	VirtualProtect((LPVOID)0x43F3A4, 4, PAGE_EXECUTE_READWRITE, &dwDummy); // CityToolMenuAction
 	*(DWORD*)0x43F3A4 = 50000000; // Power
-	
-	// Fix city name being overwritten by filename on save
-	BYTE bFilenamePatch[6] = { 0xB9, 0xA0, 0xA1, 0x4C, 0x00, 0x51 };
-	VirtualProtect((LPVOID)0x42FE62, 6, PAGE_EXECUTE_READWRITE, &dwDummy);
-	memcpy((LPVOID)0x42FE62, bFilenamePatch, 6);
-	VirtualProtect((LPVOID)0x42FE99, 6, PAGE_EXECUTE_READWRITE, &dwDummy);
-	memcpy((LPVOID)0x42FE99, bFilenamePatch, 6);
 
-	// Adjust the Save File dialog type criterion
-	VirtualProtect((LPVOID)0x4E7344, 32, PAGE_EXECUTE_READWRITE, &dwDummy);
-	memset((LPVOID)0x4E7344, 0, 32);
-	memcpy_s((LPVOID)0x4E7344, 32, "Simcity files (*.sc2)|*.sc2||", 32);
+	// Fix the pipe tool not refreshing properly at max zoom
+	VirtualProtect((LPVOID)0x43F447, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
+	NEWCALL((LPVOID)0x43F447, 0x402810);		// CSimcityView::UpdateAreaCompleteColorFill
 
-	// Fix save filenames going wonky 
-	VirtualProtect((LPVOID)0x4321B9, 8, PAGE_EXECUTE_READWRITE, &dwDummy);
-	memset((LPVOID)0x4321B9, 0x90, 8);
+	// Install hooks for saving and loading
+	InstallSaveHooks_SC2K1996();
 
-	// Fix $1500 neighbor connections on game load
-	VirtualProtect((LPVOID)0x434BEA, 6, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWCALL((LPVOID)0x434BEA, Hook_LoadNeighborConnections1500);
-	*(BYTE*)0x434BEF = 0x90;
-
-	// Install hooks for the SC2X save format
-	InstallSaveHooks();
-
-	// Hook into the ResetGameVars function.
+	// Hook into the StartCleanGame function.
 	VirtualProtect((LPVOID)0x401F05, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x401F05, Hook_ResetGameVars);
+	NEWJMP((LPVOID)0x401F05, Hook_StartCleanGame);
 
-	// Hook into the SimulationGrowthTick function
-	VirtualProtect((LPVOID)0x4022FC, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x4022FC, Hook_SimulationGrowthTick);
-
-	// Hook into the SimulationGrowSpecificZone function
-	VirtualProtect((LPVOID)0x4026B2, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x4026B2, Hook_SimulationGrowSpecificZone);
-
-	// Hook into the PlacePowerLines function
-	VirtualProtect((LPVOID)0x402725, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x402725, Hook_PlacePowerLinesAtCoordinates);
-
-	// Hook into what appears to be one of the item placement checking functions
-	VirtualProtect((LPVOID)0x4027F2, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x4027F2, Hook_ItemPlacementCheck);
-
-	// Military base hooks
-	InstallMilitaryHooks();
-
-	// Move the alt+query bottom text to not be blocked by the OK button
-	VirtualProtect((LPVOID)0x428FB1, 3, PAGE_EXECUTE_READWRITE, &dwDummy);
-	*(BYTE*)0x428FB1 = 0x83;
-	*(BYTE*)0x428FB2 = 0xE8;
-	*(BYTE*)0x428FB3 = 0x32;
+	InstallTileGrowthOrPlacementHandlingHooks_SC2K1996();
 	
 	// Install the advanced query hook
-	if (bUseAdvancedQuery)
-		InstallQueryHooks();
+	InstallQueryHooks_SC2K1996();
 
-	// Fix the broken cheat
-	// *** Only effective when the 'CMainFrame::OnChar' below is disabled. ***
-	UINT uCheatPatch[9] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
-	memcpy_s((LPVOID)0x4E65C8, 10, "mrsoleary", 10);
-	memcpy_s((LPVOID)0x4E6490, sizeof(uCheatPatch), uCheatPatch, sizeof(uCheatPatch));
-
-	// Hook for CMainFrame::OnChar
-	VirtualProtect((LPVOID)0x4029E1, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x4029E1, Hook_MainFrameOnChar);
-
-	// Increase sound buffer sizes to 256K each
-	VirtualProtect((LPVOID)0x480C2B, 4, PAGE_EXECUTE_READWRITE, &dwDummy);
-	*(DWORD*)0x480C2B = 262144;
-	VirtualProtect((LPVOID)0x480C4B, 4, PAGE_EXECUTE_READWRITE, &dwDummy);
-	*(DWORD*)0x480C4B = 262144;
-	VirtualProtect((LPVOID)0x480C5B, 4, PAGE_EXECUTE_READWRITE, &dwDummy);
-	*(DWORD*)0x480C5B = 262144;
-	VirtualProtect((LPVOID)0x480C6B, 4, PAGE_EXECUTE_READWRITE, &dwDummy);
-	*(DWORD*)0x480C6B = 262144;
-	VirtualProtect((LPVOID)0x480C7B, 4, PAGE_EXECUTE_READWRITE, &dwDummy);
-	*(DWORD*)0x480C7B = 262144;
-
-	// Load higher quality sounds from DLL resources
+	// Expand sound buffers and load higher quality sounds from DLL resources
 	LoadReplacementSounds();
-
-	// Hook sound buffer loading
-	VirtualProtect((LPVOID)0x401F9B, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x401F9B, Hook_LoadSoundBuffer);
 
 	// Install music engine hooks
 	InstallMusicEngineHooks();
 
-	// Load weather icons
-	for (int i = 0; i < 13; i++) {
-		HANDLE hBitmap = LoadImage(hSC2KFixModule, MAKEINTRESOURCE(IDB_WEATHER0 + i), IMAGE_BITMAP, 32, 32, NULL);
-		if (hBitmap)
-			hWeatherBitmaps[i] = hBitmap;
-		else
-			ConsoleLog(LOG_ERROR, "MISC: Couldn't load weather bitmap IDB_WEATHER%i: 0x%08X\n", i, GetLastError());
-	}
-
-	// Load compass icons
-	for (int i = 0; i < 4; i++) {
-		HANDLE hBitmap = LoadImage(hSC2KFixModule, MAKEINTRESOURCE(IDB_COMPASS0 + i), IMAGE_BITMAP, 38, 38, NULL);
-		if (hBitmap)
-			hCompassBitmaps[i] = hBitmap;
-		else
-			ConsoleLog(LOG_ERROR, "MISC: Couldn't load compass bitmap IDB_COMPASS%i: 0x%08X\n", i, GetLastError());
-	}
-
 	// Hook status bar updates for the status dialog implementation
 	InstallStatusHooks_SC2K1996();
-
-	// Hooks for CCityToolBar::ToolMenuDisable and CCityToolBar::ToolMenuEnable
-	// Both of which are called when a modal CGameDialog is opened.
-	// The purpose in this case will be to temporarily alter the parent
-	// of the status widget (if it is in floating mode) so interaction is disabled.
-	VirtualProtect((LPVOID)0x402937, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x402937, Hook_CityToolBarToolMenuDisable);
-	VirtualProtect((LPVOID)0x401519, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x401519, Hook_CityToolBarToolMenuEnable);
 
 	// Hook for ShowViewControls
 	VirtualProtect((LPVOID)0x4021D5, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
@@ -3271,16 +1748,18 @@ void InstallMiscHooks_SC2K1996(void) {
 
 	// Hook for CMainFrame::UpdateSections
 	VirtualProtect((LPVOID)0x40131B, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x40131B, Hook_MainFrameUpdateSections);
+	NEWJMP((LPVOID)0x40131B, Hook_MainFrame_UpdateSections);
+
+	InstallToolBarHooks_SC2K1996();
 
 	// New hooks for CSimcityDoc::UpdateDocumentTitle and
 	// SimulationProcessTick - these account for:
 	// 1) Including the day of the month in the window title.
 	// 2) The fine-grained simulation updates.
 	VirtualProtect((LPVOID)0x4017B2, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x4017B2, Hook_SimcityDocUpdateDocumentTitle);
+	NEWJMP((LPVOID)0x4017B2, Hook_SimcityDoc_UpdateDocumentTitle);
 	VirtualProtect((LPVOID)0x401820, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x401820, Hook_SimulationProcessTick);
+	NEWJMP((LPVOID)0x401820, Hook_Engine_SimulationProcessTick);
 
 	// Hook SimulationStartDisaster
 	VirtualProtect((LPVOID)0x402527, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
@@ -3290,10 +1769,30 @@ void InstallMiscHooks_SC2K1996(void) {
 	VirtualProtect((LPVOID)0x402388, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
 	NEWJMP((LPVOID)0x402388, Hook_AddAllInventions);
 
-	// Add settings buttons to SC2K's menus
+	// Hook CWnd::OnCommand
+	VirtualProtect((LPVOID)0x4A5352, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
+	NEWJMP((LPVOID)0x4A5352, Hook_Wnd_OnCommand);
+
+	// Add more buttons to SC2K's menus
+	// TODO: write a much cleaner and more programmatic way of doing this
 	hGameMenu = LoadMenu(hSC2KAppModule, MAKEINTRESOURCE(3));
 	if (hGameMenu) {
-		AFX_MSGMAP_ENTRY afxMessageMapEntry[2];
+		// File menu -> Reload Default Tileset
+		HMENU hFilePopup;
+		MENUITEMINFO miiFilePopup;
+		miiFilePopup.cbSize = sizeof(MENUITEMINFO);
+		miiFilePopup.fMask = MIIM_SUBMENU;
+		if (!GetMenuItemInfo(hGameMenu, 0, TRUE, &miiFilePopup) && mischook_debug & MISCHOOK_DEBUG_MENU) {
+			ConsoleLog(LOG_DEBUG, "MISC: Game GetMenuItemInfo failed, error = 0x%08X.\n", GetLastError());
+			goto skipgamemenu;
+		}
+		hFilePopup = miiFilePopup.hSubMenu;
+		if (!InsertMenu(hFilePopup, 6, MF_BYPOSITION|MF_STRING, IDM_GAME_FILE_RELOADDEFAULTTILESET, "Reload &Default Tile Set") && mischook_debug & MISCHOOK_DEBUG_MENU) {
+			ConsoleLog(LOG_DEBUG, "MISC: Game InsertMenuA #1 failed, error = 0x%08X.\n", GetLastError());
+			goto skipgamemenu;
+		}
+
+		// Options menu -> add sc2kfix Settings... and Mod Configuration...
 		HMENU hOptionsPopup;
 		MENUITEMINFO miiOptionsPopup;
 		miiOptionsPopup.cbSize = sizeof(MENUITEMINFO);
@@ -3316,48 +1815,37 @@ void InstallMiscHooks_SC2K1996(void) {
 			goto skipgamemenu;
 		}
 
-		EnableMenuItem(hOptionsPopup, 5, MF_BYPOSITION | MF_ENABLED);
-		EnableMenuItem(hOptionsPopup, 6, MF_BYPOSITION | MF_ENABLED);
-
-		afxMessageMapEntry[0] = {
-			WM_COMMAND,
-			0,
-			IDM_GAME_OPTIONS_SC2KFIXSETTINGS,
-			IDM_GAME_OPTIONS_SC2KFIXSETTINGS,
-			0x0A,
-			ShowSettingsDialog,
-		};
-
-		afxMessageMapEntry[1] = {
-			WM_COMMAND,
-			0,
-			IDM_GAME_OPTIONS_MODCONFIG,
-			IDM_GAME_OPTIONS_MODCONFIG,
-			0x0A,
-			ShowModSettingsDialog
-		};
-
-		VirtualProtect((LPVOID)0x4D45C0, sizeof(afxMessageMapEntry), PAGE_EXECUTE_READWRITE, &dwDummy);
-		memcpy_s((LPVOID)0x4D45C0, sizeof(afxMessageMapEntry), &afxMessageMapEntry, sizeof(afxMessageMapEntry));
+		// Windows menu -> add Show Scenario Goals...
+		HMENU hMenuWindowsPopup;
+		MENUITEMINFO miiWindowsPopup;
+		miiWindowsPopup.cbSize = sizeof(MENUITEMINFO);
+		miiWindowsPopup.fMask = MIIM_SUBMENU;
+		if (!GetMenuItemInfo(hGameMenu, 4, TRUE, &miiWindowsPopup) && mischook_debug & MISCHOOK_DEBUG_MENU) {
+			ConsoleLog(LOG_DEBUG, "MISC: Game GetMenuItemInfo failed, error = 0x%08X.\n", GetLastError());
+			goto skipgamemenu;
+		}
+		hMenuWindowsPopup = miiWindowsPopup.hSubMenu;
+		if (!InsertMenu(hMenuWindowsPopup, -1, MF_BYPOSITION | MF_SEPARATOR, NULL, NULL) && mischook_debug & MISCHOOK_DEBUG_MENU) {
+			ConsoleLog(LOG_DEBUG, "MISC: Game InsertMenuA #1 failed, error = 0x%08X.\n", GetLastError());
+			goto skipgamemenu;
+		}
+		if (!InsertMenu(hMenuWindowsPopup, -1, MF_BYPOSITION | MF_STRING, IDM_GAME_WINDOWS_SCENARIOGOALS, "Show &Scenario Goals...") && mischook_debug & MISCHOOK_DEBUG_MENU) {
+			ConsoleLog(LOG_DEBUG, "MISC: Game InsertMenuA #2 failed, error = 0x%08X.\n", GetLastError());
+			goto skipgamemenu;
+		}
 
 		if (mischook_debug & MISCHOOK_DEBUG_MENU)
 			ConsoleLog(LOG_DEBUG, "MISC: Updated game menu.\n");
 	}
 
 skipgamemenu:
-
-	// This case only occurs if the debug menu has been loaded
-	// from the original non-hooked CMainFrame::OnChar function.
-	hDebugMenu = LoadMenu(hSC2KAppModule, MAKEINTRESOURCE(223));
-	AdjustDebugMenu(hDebugMenu);
-
 	// Hook for the game area leftmousebuttondown call.
 	VirtualProtect((LPVOID)0x401523, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x401523, Hook_CSimcityView_WM_LBUTTONDOWN);
+	NEWJMP((LPVOID)0x401523, Hook_SimcityView_OnLButtonDown);
 
 	// Hook for the game area mouse movement call.
 	VirtualProtect((LPVOID)0x4016EA, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x4016EA, Hook_CSimcityView_WM_MOUSEMOVE);
+	NEWJMP((LPVOID)0x4016EA, Hook_SimcityView_OnMouseMove);
 
 	// Hook for the MapToolMenuAction call.
 	VirtualProtect((LPVOID)0x402B44, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
@@ -3365,30 +1853,19 @@ skipgamemenu:
 
 	// Hook for CSimcityApp::LoadCursorResources
 	VirtualProtect((LPVOID)0x402234, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
-	NEWJMP((LPVOID)0x402234, Hook_LoadCursorResources);
+	NEWJMP((LPVOID)0x402234, Hook_SimcityApp_LoadCursorResources);
 
 	// Hook for StartupGraphics
 	VirtualProtect((LPVOID)0x4014DD, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
 	NEWJMP((LPVOID)0x4014DD, Hook_StartupGraphics);
 
-	// Add hook to center with the middle mouse button
-	AFX_MSGMAP_ENTRY afxMessageMapEntrySimCityView = {
-		WM_MBUTTONDOWN,
-		0,
-		0,
-		0,
-		0x2A,
-		Hook_CSimcityView_WM_MBUTTONDOWN
-	};
-	VirtualProtect((LPVOID)0x4D45F0, sizeof(afxMessageMapEntrySimCityView), PAGE_EXECUTE_READWRITE, &dwDummy);
-	memcpy_s((LPVOID)0x4D45F0, sizeof(afxMessageMapEntrySimCityView), &afxMessageMapEntrySimCityView, sizeof(afxMessageMapEntrySimCityView));
+	// Hook for CCmdUI::Enable
+	VirtualProtect((LPVOID)0x4A296A, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
+	NEWJMP((LPVOID)0x4A296A, Hook_CmdUI_Enable);
 
-	// Copy the main menu's message map and update the runtime class to use it
-	VirtualProtect((LPVOID)0x4D513C, 4, PAGE_EXECUTE_READWRITE, &dwDummy);
-	memcpy_s(afxMessageMapMainMenu, sizeof(afxMessageMapMainMenu), (LPVOID)0x4D5140, sizeof(AFX_MSGMAP_ENTRY) * 8);
-	afxMessageMapMainMenu[7] = { WM_COMMAND, 0, 118, 118, 0x0A, ShowSettingsDialog };
-	afxMessageMapMainMenu[8] = { 0 };
-	*(DWORD*)0x4D513C = (DWORD)afxMessageMapMainMenu;
+	// Hook the scenario start dialog so we can save the description
+	VirtualProtect((LPVOID)0x402B4E, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
+	NEWJMP((LPVOID)0x402B4E, Hook_402B4E);
 
 	// Skip over the strange bit of code that re-arranges the original main menu.
 	// 
@@ -3400,6 +1877,9 @@ skipgamemenu:
 	VirtualProtect((LPVOID)0x41503F, 6, PAGE_EXECUTE_READWRITE, &dwDummy);
 	NEWJMP(0x41503F, 0x415161);
 	*(BYTE*)0x415044 = 0x90;
+
+	// Call your cousin Vinnie!
+	PorntipsGuzzardo();
 
 	// Part two!
 	UpdateMiscHooks_SC2K1996();

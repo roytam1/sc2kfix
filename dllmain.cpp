@@ -13,13 +13,16 @@
 #include <stdlib.h>
 #include <intrin.h>
 #include <time.h>
+//#include <VersionHelpers.h>
 
 #include <sc2kfix.h>
 #include <winmm_exports.h>
 #include "resource.h"
 
+#if !NOKUROKO
 #include <kuroko/kuroko.h>
 #include <kuroko/util.h>
+#endif
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(linker,"\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
@@ -42,8 +45,10 @@ const char* szSC2KFixReleaseTag = SC2KFIX_RELEASE_TAG;
 const char* szSC2KFixBuildInfo = __DATE__ " " __TIME__;
 FILE* fdLog = NULL;
 BOOL bInSCURK = FALSE;
+#if !NOKUROKO
 BOOL bKurokoVMInitialized = FALSE;
-BOOL bUseAdvancedQuery = FALSE;
+#endif
+BOOL bUseAdvancedQuery = TRUE;
 BOOL bSkipLoadingMods = FALSE;
 int iForcedBits = 0;
 
@@ -119,19 +124,37 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		if (argv) {
 			for (int i = 0; i < argc; i++) {
 				if (!bSubArg) {
-					if (!lstrcmpiW(argv[i], L"-advquery"))
-						bUseAdvancedQuery = TRUE;
+					if (!lstrcmpiW(argv[i], L"-noadvquery"))
+						bUseAdvancedQuery = FALSE;
 					if (!lstrcmpiW(argv[i], L"-console"))
 						bConsoleEnabled = TRUE;
 					if (!lstrcmpiW(argv[i], L"-debugall")) {
+						guzzardo_debug = DEBUG_FLAGS_EVERYTHING;
 						mci_debug = DEBUG_FLAGS_EVERYTHING;
 						military_debug = DEBUG_FLAGS_EVERYTHING;
 						mischook_debug = DEBUG_FLAGS_EVERYTHING;
 						modloader_debug = DEBUG_FLAGS_EVERYTHING;
 						mus_debug = DEBUG_FLAGS_EVERYTHING;
+						registry_debug = DEBUG_FLAGS_EVERYTHING;
+						sc2x_debug = DEBUG_FLAGS_EVERYTHING;
 						snd_debug = DEBUG_FLAGS_EVERYTHING;
+						sprite_debug = DEBUG_FLAGS_EVERYTHING;
 						timer_debug = DEBUG_FLAGS_EVERYTHING;
 						updatenotifier_debug = DEBUG_FLAGS_EVERYTHING;
+					}
+					if (!lstrcmpiW(argv[i], L"-undebugall")) {
+						guzzardo_debug = DEBUG_FLAGS_NONE;
+						mci_debug = DEBUG_FLAGS_NONE;
+						military_debug = DEBUG_FLAGS_NONE;
+						mischook_debug = DEBUG_FLAGS_NONE;
+						modloader_debug = DEBUG_FLAGS_NONE;
+						mus_debug = DEBUG_FLAGS_NONE;
+						registry_debug = DEBUG_FLAGS_NONE;
+						sc2x_debug = DEBUG_FLAGS_NONE;
+						snd_debug = DEBUG_FLAGS_NONE;
+						sprite_debug = DEBUG_FLAGS_NONE;
+						timer_debug = DEBUG_FLAGS_NONE;
+						updatenotifier_debug = DEBUG_FLAGS_NONE;
 					}
 					if (!lstrcmpiW(argv[i], L"-defaults"))
 						bSkipLoadSettings = TRUE;
@@ -174,29 +197,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		//      prior to the console itself being enabled.
 		fopen_s(&fdLog, "sc2kfix.log", "w");
 
-		SetGamePath();
-
-		// Load settings
-		if (!bSkipLoadSettings)
-			LoadSettings();
-		else
-			ConsoleLog(LOG_INFO, "CORE: -default passed, skipping LoadSettings()\n");
-
-		// Force the console to be enabled if bSettingsAlwaysConsole is set
-		if (bSettingsAlwaysConsole)
-			bConsoleEnabled = true;
-
-		if (iForcedBits > 0)
-			ConsoleLog(LOG_INFO, "CORE: -bitmode passed, forcing %d-Bit mode.\n", iForcedBits);
-
-		// Force the console to be enabled if DEBUGALL is defined
-#ifdef DEBUGALL
-		bConsoleEnabled = true;
-#endif
-
-		// Allocate ourselves a console and redirect libc stdio to it
-		if (bConsoleEnabled) {
+		// Allocate a console and immediately hide it. We will later send a ShowWindow to make it
+		// visible if the console is to be made user-facing.
+		{
 			AllocConsole();
+			ShowWindow(GetConsoleWindow(), SW_HIDE);
 			SetConsoleOutputCP(65001);
 			SetConsoleCP(65001);
 			SetConsoleTitle("sc2kfix console");
@@ -212,9 +217,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 			SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), dwConsoleOutMode);
 
 			// Set the console window icon
-			HWND hConsoleWindow = GetConsoleWindow();
-			SendMessage(hConsoleWindow, WM_SETICON, ICON_BIG, (LPARAM)LoadIcon(hSC2KFixModule, MAKEINTRESOURCE(IDI_TOPSECRET)));
-			SendMessage(hConsoleWindow, WM_SETICON, ICON_SMALL, (LPARAM)LoadIcon(hSC2KFixModule, MAKEINTRESOURCE(IDI_TOPSECRET)));
+			SendMessage(GetConsoleWindow(), WM_SETICON, ICON_BIG, (LPARAM)LoadIcon(hSC2KFixModule, MAKEINTRESOURCE(IDI_TOPSECRET)));
+			SendMessage(GetConsoleWindow(), WM_SETICON, ICON_SMALL, (LPARAM)LoadIcon(hSC2KFixModule, MAKEINTRESOURCE(IDI_TOPSECRET)));
 		}
 
 		// Print the version banner
@@ -227,11 +231,59 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		ConsoleLog(LOG_INFO, "CORE: SC2K session started at %lld.\n", time(NULL));
 		ConsoleLog(LOG_INFO, "CORE: Command line: %s\n", GetCommandLine());
 
+		// Dump some OS version information for bug reports
+		{
+			BOOL (WINAPI *RtlGetVersion)(LPOSVERSIONINFOW*) = (BOOL (WINAPI *)(LPOSVERSIONINFOW*))GetProcAddress(LoadLibrary("ntdll.dll"), "RtlGetVersion");
+			OSVERSIONINFOEXW stOSVersionInfoEx = { 0 };
+			stOSVersionInfoEx.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEXW);
+			RtlGetVersion((LPOSVERSIONINFOW*)&stOSVersionInfoEx);
+			BOOL bX64 = FALSE;
+			IsWow64Process(GetCurrentProcess(), &bX64);
+
+			ConsoleLog(LOG_INFO, "CORE: OS is Windows%s %d.%d Build %d (%s)\n",
+				stOSVersionInfoEx.wProductType == VER_NT_WORKSTATION ? "" : " Server",
+				stOSVersionInfoEx.dwMajorVersion, stOSVersionInfoEx.dwMinorVersion, stOSVersionInfoEx.dwBuildNumber,
+				bX64 ? "x64" : "x86");
+		}
+
+		// Dump some console opening info
 		if (bConsoleEnabled) {
 			ConsoleLog(LOG_INFO, "CORE: Spawned console session.\n");
 			printf("[INFO ] CORE: ");
 			ConsoleCmdShowDebug(NULL, NULL);
 		}
+
+		// Update the game path in memory
+		SetGamePath();
+
+		// Load the FluidSynth library in case we need it
+		MusicLoadFluidSynth();
+
+		// Initialize settings
+		InitializeSettings();
+
+		// Load settings
+		if (!bSkipLoadSettings)
+			LoadSettings();
+		else
+			ConsoleLog(LOG_INFO, "CORE: -default passed, skipping LoadSettings()\n");
+
+		// Force the console to be visible if bSettingsAlwaysConsole is set
+		if (bSettingsAlwaysConsole)
+			bConsoleEnabled = true;
+
+		// Foce n-bit mode if requested
+		if (iForcedBits > 0)
+			ConsoleLog(LOG_INFO, "CORE: -bitmode passed, forcing %d-bit mode.\n", iForcedBits);
+
+		// Force the console to be visible if DEBUGALL is defined
+#ifdef DEBUGALL
+		bConsoleEnabled = true;
+#endif
+
+		// Enable the console window if requested
+		if (bConsoleEnabled)
+			ShowWindow(GetConsoleWindow(), SW_NORMAL);
 
 		// Install our top-level exception handler
 		//SetUnhandledExceptionFilter(CrashHandler);
@@ -242,9 +294,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 			InjectSCURKFix();
 			break;
 		}
-
-		// SMK..
-		GetSMKFuncs();
 		
 		// Seed the libc RNG -- we'll need this later
 		srand((unsigned int)time(NULL));
@@ -280,15 +329,17 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		if (dwDetectedVersion == SC2KVERSION_DEMO)
 			gamePrimaryKey = "SimCity 2000 Win95 Demo";
 
-
 		// Registry check
 		int iInstallCheck;
 
-		iInstallCheck = DoRegistryCheckAndInstall();
-		if (iInstallCheck == 2)
-			ConsoleLog(LOG_INFO, "CORE: Portable entries created by faux-installer.");
-		else if (iInstallCheck == 1)
-			ConsoleLog(LOG_INFO, "CORE: Registry entries migrated by faux-installer.");
+		iInstallCheck = DoCheckAndInstall();
+		if (iInstallCheck)
+			ConsoleLog(LOG_INFO, "CORE: Portable entries created by faux-installer.\n");
+
+		if (dwDetectedVersion == SC2KVERSION_1996) {
+			ConsoleLog(LOG_INFO, "CORE: Loading last stored load/save city and load tileset paths.\n");
+			LoadStoredPaths();
+		}
 
 		// Check for updates
 		if (bSettingsCheckForUpdates) {
@@ -307,11 +358,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 
 		bCanFixAnimation = TRUE;
 		if (dwDetectedVersion == SC2KVERSION_1996)
-			InstallAnimationSimCity1996Hooks();
+			InstallAnimationHooks_SC2K1996();
 		else if (dwDetectedVersion == SC2KVERSION_1995)
-			InstallAnimationSimCity1995Hooks();
+			InstallAnimationHooks_SC2K1995();
 		else if (dwDetectedVersion == SC2KVERSION_DEMO)
-			InstallAnimationSimCityDemoHooks();
+			InstallAnimationHooks_SC2KDemo();
 		else
 			bCanFixAnimation = FALSE;
 
@@ -398,13 +449,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		// Start the console thread.
 		if (bConsoleEnabled) {
 			ConsoleLog(LOG_INFO, "CORE: Starting console thread.\n");
+#if !NOKUROKO
 			hConsoleThread = CreateThread(NULL, 0, ConsoleThread, 0, 0, &dwConsoleThreadID);
+#else
+			hConsoleThread = CreateThread(NULL, 0, ConsoleThread, 0, 0, NULL);
+#endif
 		}
 
 		// Set up the modding infrastructure for the 1996 Special Edition version.
 		if (dwDetectedVersion == SC2KVERSION_1996) {
+#if !NOKUROKO
 			// Initialize the Kuroko VM
 			CreateThread(NULL, 0, KurokoThread, 0, 0, &dwKurokoThreadID);
+#endif
 
 			// Load native code mods.
 			if (!bSkipLoadingMods && !bSettingsDontLoadMods)
@@ -423,9 +480,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
 		// Shut down the music thread
 		PostThreadMessage(dwMusicThreadID, WM_QUIT, NULL, NULL);
 
+#if !NOKUROKO
 		// Shut down the Kuroko thread
 		if (bKurokoVMInitialized)
 			PostThreadMessage(dwKurokoThreadID, WM_QUIT, NULL, NULL);
+#endif
+
+		// Only save the stored paths during a graceful exit. (SC2K1996 only for now)
+		if (!bGameDead)
+			if (dwDetectedVersion == SC2KVERSION_1996)
+				SaveStoredPaths();
+
+		// Clear out the stored sprite IDs (no allocated data are contained).
+		spriteIDs.clear();
 
 		// Send a closing message and close the log file
 		ReleaseSMKFuncs();

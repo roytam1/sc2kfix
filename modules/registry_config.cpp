@@ -4,6 +4,7 @@
 #undef UNICODE
 #include <windows.h>
 #include <psapi.h>
+#include <shlwapi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <intrin.h>
@@ -15,12 +16,23 @@
 
 #pragma intrinsic(_ReturnAddress)
 
-#define MISCHOOK_DEBUG_REGISTRY 32768
-#define MISCHOOK_DEBUG_PATHING 65536
+#define REGISTRY_DEBUG_OTHER 1
+#define REGISTRY_DEBUG_REGISTRY 2
+#define REGISTRY_DEBUG_PATHING 4
+
+#define REGISTRY_DEBUG DEBUG_FLAGS_NONE
+
+#ifdef DEBUGALL
+#undef REGISTRY_DEBUG
+#define REGISTRY_DEBUG DEBUG_FLAGS_EVERYTHING
+#endif
+
+UINT registry_debug = REGISTRY_DEBUG;
 
 #define REG_KEY_BASE 0x80000040UL
 
 enum redirected_keys_t {
+	enSoftwareKey,
 	enMaxisKey,
 	enSC2KKey,
 	enPathsKey,
@@ -45,6 +57,9 @@ enum regPathVersion {
 static int iRegPathHookMode = REGPATH_UNKNOWN;
 
 const char *gamePrimaryKey = "SimCity 2000";
+
+char szLastStoredCityPath[MAX_PATH + 1];
+char szLastStoredTileSetPath[MAX_PATH + 1];
 
 BOOL CALLBACK InstallDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam) {
 	switch (message) {
@@ -76,13 +91,34 @@ BOOL CALLBACK InstallDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARA
 	return FALSE;
 }
 
-static void InstallSC2KDefaults(void) {
+static BOOL InstallSC2KDefaults(void) {
 	const char* ini_file = GetIniPath();
 	const char* section;
+	char szTemp[63 + 1];
+	int nRegEnts = 0;
 
+	section = "Registration";
+
+	memset(szTemp, 0, sizeof(szTemp));
+	if (GetPrivateProfileStringA(section, "Mayor Name", "", szTemp, sizeof(szTemp) - 1, ini_file) > 0) {
+		if (szTemp[0] && strlen(szTemp) > 0)
+			nRegEnts++;
+	}
+
+	memset(szTemp, 0, sizeof(szTemp));
+	if (GetPrivateProfileStringA(section, "Company Name", "", szTemp, sizeof(szTemp) - 1, ini_file) > 0) {
+		if (szTemp[0] && strlen(szTemp) > 0)
+			nRegEnts++;
+	}
+
+	// If 'Installed' returns 1 and both the mayor/company entries are defined
+	// return false (nothing needs to be done), otherwise in either case proceed
+	// with the installation process and reset the referenced settings below
+	// to their defaults.
 	section = "Portable";
 	if (GetPrivateProfileIntA(section, "Installed", 0, ini_file) == 1) {
-		return;
+		if (nRegEnts == 2)
+			return FALSE;
 	}
 
 	WritePrivateProfileIntA(section, "Installed", 1, ini_file);
@@ -109,7 +145,7 @@ static void InstallSC2KDefaults(void) {
 	WritePrivateProfileIntA(section, "AutoGoto", TRUE, ini_file);
 	WritePrivateProfileIntA(section, "AutoBudget", FALSE, ini_file);
 	WritePrivateProfileIntA(section, "AutoSave", FALSE, ini_file);
-	WritePrivateProfileIntA(section, "Speed", 2, ini_file);
+	WritePrivateProfileIntA(section, "Speed", GAME_SPEED_TURTLE, ini_file);
 
 	// Write default SCURK options
 	section = "SCURK";
@@ -122,172 +158,31 @@ static void InstallSC2KDefaults(void) {
 	WritePrivateProfileIntA(section, "Sound", 1, ini_file);
 
 	SaveSettings(TRUE);
+	return TRUE;
 }
 
-static void MigrateSC2KRegistration(HKEY hKeySC2KReg) {
-	const char* ini_file = GetIniPath();
-	const char* section = "Registration";
-
-	MigrateRegStringValue(hKeySC2KReg, NULL, "Mayor Name", szSettingsMayorName, sizeof(szSettingsMayorName));
-	WritePrivateProfileStringA(section, "Mayor Name", szSettingsMayorName, ini_file);
-
-	MigrateRegStringValue(hKeySC2KReg, NULL, "Company Name", szSettingsCompanyName, sizeof(szSettingsCompanyName));
-	WritePrivateProfileStringA(section, "Company Name", szSettingsCompanyName, ini_file);
+int DoCheckAndInstall(void) {
+	return InstallSC2KDefaults();
 }
 
-static void MigrateSC2KVersion(void) {
-	DWORD dwOut;
-	const char* ini_file = GetIniPath();
-	const char* section = "Version";
-	char szKeyName[128+1];
+void LoadStoredPaths() {
+	const char *ini_file = GetIniPath();
+	const char *section = "LastAccessedPaths";
 
-	memset(szKeyName, 0, sizeof(szKeyName));
-
-	sprintf_s(szKeyName, sizeof(szKeyName)-1, "Software\\Maxis\\%s\\%s", gamePrimaryKey, section);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "SCURK", &dwOut, sizeof(DWORD));
-	WritePrivateProfileIntA(section, "SCURK", dwOut, ini_file);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "SimCity 2000", &dwOut, sizeof(DWORD));
-	WritePrivateProfileIntA(section, "SimCity 2000", dwOut, ini_file);
+	GetPrivateProfileStringA(section, "szLastStoredCityPath", "", szLastStoredCityPath, sizeof(szLastStoredCityPath) - 1, ini_file);
+	GetPrivateProfileStringA(section, "szLastStoredTileSetPath", "", szLastStoredTileSetPath, sizeof(szLastStoredTileSetPath) - 1, ini_file);
 }
 
-static void MigrateSC2KLocalize(void) {
-	const char* ini_file = GetIniPath();
-	const char* section = "Localize";
-	char szKeyName[128+1];
+void SaveStoredPaths() {
+	const char *ini_file = GetIniPath();
+	const char *section = "LastAccessedPaths";
 
-	memset(szKeyName, 0, sizeof(szKeyName));
-
-	sprintf_s(szKeyName, sizeof(szKeyName)-1, "Software\\Maxis\\%s\\%s", gamePrimaryKey, section);
-
-	char szOutBuf[16];
-	MigrateRegStringValue(HKEY_CURRENT_USER, szKeyName, "Language", szOutBuf, sizeof(szOutBuf));
-	WritePrivateProfileStringA(section, "Language", szOutBuf, ini_file);
-}
-
-static void MigrateSC2KOptions(void) {
-	DWORD dwOut;
-	const char* ini_file = GetIniPath();
-	const char* section = "Options";
-	char szKeyName[128+1];
-
-	memset(szKeyName, 0, sizeof(szKeyName));
-
-	sprintf_s(szKeyName, sizeof(szKeyName)-1, "Software\\Maxis\\%s\\%s", gamePrimaryKey, section);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "Disasters", &dwOut, sizeof(BOOL));
-	WritePrivateProfileIntA(section, "Disasters", dwOut, ini_file);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "Music", &dwOut, sizeof(BOOL));
-	WritePrivateProfileIntA(section, "Music", dwOut, ini_file);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "Sound", &dwOut, sizeof(BOOL));
-	WritePrivateProfileIntA(section, "Sound", dwOut, ini_file);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "AutoGoto", &dwOut, sizeof(BOOL));
-	WritePrivateProfileIntA(section, "AutoGoto", dwOut, ini_file);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "AutoBudget", &dwOut, sizeof(BOOL));
-	WritePrivateProfileIntA(section, "AutoBudget", dwOut, ini_file);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "AutoSave", &dwOut, sizeof(BOOL));
-	WritePrivateProfileIntA(section, "AutoSave", dwOut, ini_file);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "Speed", &dwOut, sizeof(BOOL));
-	WritePrivateProfileIntA(section, "Speed", dwOut, ini_file);
-}
-
-static void MigrateSC2KSCURK(void) {
-	DWORD dwOut;
-	const char* ini_file = GetIniPath();
-	const char* section = "SCURK";
-	char szKeyName[128+1];
-
-	memset(szKeyName, 0, sizeof(szKeyName));
-
-	sprintf_s(szKeyName, sizeof(szKeyName)-1, "Software\\Maxis\\%s\\%s", gamePrimaryKey, section);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "CycleColors", &dwOut, sizeof(DWORD));
-	WritePrivateProfileIntA(section, "CycleColors", dwOut, ini_file);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "GridHeight", &dwOut, sizeof(DWORD));
-	WritePrivateProfileIntA(section, "GridHeight", dwOut, ini_file);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "GridWidth", &dwOut, sizeof(DWORD));
-	WritePrivateProfileIntA(section, "GridWidth", dwOut, ini_file);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "ShowClipRegion", &dwOut, sizeof(DWORD));
-	WritePrivateProfileIntA(section, "ShowClipRegion", dwOut, ini_file);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "ShowDrawGrid", &dwOut, sizeof(DWORD));
-	WritePrivateProfileIntA(section, "ShowDrawGrid", dwOut, ini_file);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "SnapToGrid", &dwOut, sizeof(DWORD));
-	WritePrivateProfileIntA(section, "SnapToGrid", dwOut, ini_file);
-
-	MigrateRegDWORDValue(HKEY_CURRENT_USER, szKeyName, "Sound", &dwOut, sizeof(DWORD));
-	WritePrivateProfileIntA(section, "Sound", dwOut, ini_file);
-}
-
-static void MigrateFinalize(void) {
-	const char* ini_file = GetIniPath();
-	const char* section = "Portable";
-
-	WritePrivateProfileIntA(section, "Installed", 1, ini_file);
-}
-
-int DoRegistryCheckAndInstall(void) {
-	int ret;
-	char szKeyName[128+1];
-
-	memset(szKeyName, 0, sizeof(szKeyName));
-
-	sprintf_s(szKeyName, sizeof(szKeyName)-1, "Software\\Maxis\\%s\\%s", gamePrimaryKey, "Registration");
-
-	HKEY hKeySC2KRegistration;
-	LSTATUS lResultRegistration = RegOpenKeyExA(HKEY_CURRENT_USER, szKeyName, NULL, KEY_ALL_ACCESS, &hKeySC2KRegistration);
-	if (lResultRegistration != ERROR_SUCCESS) {
-		// Let's install.
-		InstallSC2KDefaults();
-		return 0;
-	}
-
-	ret = 0;
-	if (szSettingsMayorName[0] == 0 ||
-		szSettingsCompanyName[0] == 0) {
-		if (RegQueryValueEx(hKeySC2KRegistration, "Mayor Name", NULL, NULL, NULL, NULL) == ERROR_FILE_NOT_FOUND ||
-			RegQueryValueEx(hKeySC2KRegistration, "Company Name", NULL, NULL, NULL, NULL) == ERROR_FILE_NOT_FOUND) {
-
-			// Fake an install.
-
-			InstallSC2KDefaults();
-
-			// Signal that we had to fake an install.
-			ret = 2;
-		}
-		else {
-
-			// Migrate from registry to ini.
-			MigrateSC2KRegistration(hKeySC2KRegistration);
-
-			MigrateSC2KVersion();
-			MigrateSC2KLocalize();
-			MigrateSC2KOptions();
-			MigrateSC2KSCURK();
-			MigrateFinalize();
-
-			SaveSettings(TRUE);
-			ret = 1;
-		}
-	}
-
-	RegCloseKey(hKeySC2KRegistration);
-	return ret;
+	WritePrivateProfileStringA(section, "szLastStoredCityPath", szLastStoredCityPath, ini_file);
+	WritePrivateProfileStringA(section, "szLastStoredTileSetPath", szLastStoredTileSetPath, ini_file);
 }
 
 static BOOL IsRegKey(HKEY hKey, int rkVal) {
-	if (rkVal < enMaxisKey || rkVal >= enCountKey)
+	if (rkVal < enSoftwareKey || rkVal >= enCountKey)
 		return FALSE;
 
 	if (hKey == (HKEY)(REG_KEY_BASE + (rkVal)))
@@ -297,7 +192,7 @@ static BOOL IsRegKey(HKEY hKey, int rkVal) {
 }
 
 static BOOL IsFakeRegKey(unsigned long ulKey) {
-	if ((ulKey) >= (REG_KEY_BASE + enMaxisKey) && (ulKey) < (REG_KEY_BASE + enCountKey))
+	if ((ulKey) >= (REG_KEY_BASE + enSoftwareKey) && (ulKey) < (REG_KEY_BASE + enCountKey))
 		return TRUE;
 
 	return FALSE;
@@ -315,11 +210,15 @@ static BOOL RegLookup(const char *lpSubKey, unsigned long *ulKey) {
 	BOOL ret;
 
 	ret = FALSE;
-	if (strcmp(lpSubKey, "Maxis") == 0) {
+	if (_stricmp(lpSubKey, "Software") == 0) {
+		*ulKey = enSoftwareKey;
+		ret = TRUE;
+	}
+	else if (_stricmp(lpSubKey, "Maxis") == 0) {
 		*ulKey = enMaxisKey;
 		ret = TRUE;
 	}
-	else if (strcmp(lpSubKey, gamePrimaryKey) == 0) {
+	else if (_stricmp(lpSubKey, gamePrimaryKey) == 0) {
 		*ulKey = enSC2KKey;
 		ret = TRUE;
 	}
@@ -370,6 +269,10 @@ static const char *SectionLookup(HKEY hKey) {
 			break;
 	}
 	return NULL;
+}
+
+BOOL L_IsPathValid(const char *pStr) {
+	return (pStr && PathFileExistsA(pStr) && PathIsDirectoryA(pStr)) ? TRUE : FALSE;
 }
 
 static void GetOutString(const char *sString, LPBYTE lpData, LPDWORD lpcbData) {
@@ -445,7 +348,7 @@ extern "C" LSTATUS __stdcall Hook_RegSetValueExA(HKEY hKey, LPCSTR lpValueName, 
 		return ERROR_SUCCESS;
 	}
 
-	if (mischook_debug & MISCHOOK_DEBUG_REGISTRY)
+	if (registry_debug & REGISTRY_DEBUG_REGISTRY)
 		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> RegSetValueExA(0x%08x, %s, 0x%08X, 0x%08X, 0x%08X, 0x%08X)\n", _ReturnAddress(), hKey, lpValueName,
 			dwReserved, dwType, *lpData, cbData);
 
@@ -458,14 +361,18 @@ extern "C" LSTATUS __stdcall Hook_RegQueryValueExA(HKEY hKey, LPCSTR lpValueName
 
 		strcpy_s(szTargetPath, MAX_PATH, szGamePath);
 		if (_stricmp(lpValueName, "Goodies") == 0) {
-			if (mischook_debug & MISCHOOK_DEBUG_REGISTRY)
+			if (registry_debug & REGISTRY_DEBUG_REGISTRY)
 				ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> Query Adjustment - %s -> %s\n", _ReturnAddress(), lpValueName, "MOVIES");
 			GamePathAdjust(szTargetPath, "Movies", lpData, lpcbData);
 		}
 		else if (_stricmp(lpValueName, "Cities") == 0 ||
 			_stricmp(lpValueName, "SaveGame") == 0) {
-			GamePathAdjust(szTargetPath, "Cities", lpData, lpcbData);
+			if (L_IsPathValid(szLastStoredCityPath))
+				GetOutString(szLastStoredCityPath, lpData, lpcbData);
+			else
+				GamePathAdjust(szTargetPath, "Cities", lpData, lpcbData);
 		}
+
 		else if (_stricmp(lpValueName, "Data") == 0)
 			GamePathAdjust(szTargetPath, "Data", lpData, lpcbData);
 
@@ -481,8 +388,12 @@ extern "C" LSTATUS __stdcall Hook_RegQueryValueExA(HKEY hKey, LPCSTR lpValueName
 		else if (_stricmp(lpValueName, "Scenarios") == 0)
 			GamePathAdjust(szTargetPath, "Scenario", lpData, lpcbData);
 		
-		else if (_stricmp(lpValueName, "TileSets") == 0)
-			GamePathAdjust(szTargetPath, "ScurkArt", lpData, lpcbData);
+		else if (_stricmp(lpValueName, "TileSets") == 0) {
+			if (L_IsPathValid(szLastStoredTileSetPath))
+				GetOutString(szLastStoredTileSetPath, lpData, lpcbData);
+			else
+				GamePathAdjust(szTargetPath, "ScurkArt", lpData, lpcbData);
+		}
 		
 		return ERROR_SUCCESS;
 	}
@@ -577,7 +488,7 @@ extern "C" LSTATUS __stdcall Hook_RegQueryValueExA(HKEY hKey, LPCSTR lpValueName
 		return ERROR_SUCCESS;
 	}
 
-	if (mischook_debug & MISCHOOK_DEBUG_REGISTRY)
+	if (registry_debug & REGISTRY_DEBUG_REGISTRY)
 		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> RegQueryValueExA(0x%08x, %s, 0x%08X, 0x%08X, 0x%08X, 0x%08X)\n", _ReturnAddress(), hKey, lpValueName,
 			lpReserved, *lpType, lpData, lpcbData);
 
@@ -594,17 +505,32 @@ extern "C" LSTATUS __stdcall Hook_RegCreateKeyExA(HKEY hKey, LPCSTR lpSubKey, DW
 		return ERROR_SUCCESS;
 	}
 
-	if (mischook_debug & MISCHOOK_DEBUG_REGISTRY)
+	if (registry_debug & REGISTRY_DEBUG_REGISTRY)
 		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> RegCreateKeyExA(0x%08x, %s, ...)\n", _ReturnAddress(), hKey, lpSubKey);
 
 	return RegCreateKeyExA(hKey, lpSubKey, dwReserved, lpClass, dwOptions, samDesired, lpSecurityAttributes, phkResult, lpdwDisposition);
+}
+
+extern "C" LSTATUS __stdcall Hook_RegOpenKeyExA(HKEY hKey, LPCSTR lpSubKey, DWORD ulOptions, REGSAM samDesired, PHKEY phkResult) {
+	unsigned long ulKey;
+	
+	ulKey = 0;
+	if (RegLookup(lpSubKey, &ulKey)) {
+		*phkResult = (HKEY)(REG_KEY_BASE + ulKey);
+		return ERROR_SUCCESS;
+	}
+
+	if (registry_debug & REGISTRY_DEBUG_REGISTRY)
+		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> RegOpenKeyExA(0x%08x, %s, ...)\n", _ReturnAddress(), hKey, lpSubKey);
+
+	return RegOpenKeyExA(hKey, lpSubKey, ulOptions, samDesired, phkResult);
 }
 
 extern "C" LSTATUS __stdcall Hook_RegCloseKey(HKEY hKey) {
 	if (IsFakeRegKey((unsigned long)hKey))
 		return ERROR_SUCCESS;
 
-	if (mischook_debug & MISCHOOK_DEBUG_REGISTRY)
+	if (registry_debug & REGISTRY_DEBUG_REGISTRY)
 		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> RegCloseKey(0x%08x)\n", _ReturnAddress(), hKey);
 
 	return RegCloseKey(hKey);
@@ -612,7 +538,7 @@ extern "C" LSTATUS __stdcall Hook_RegCloseKey(HKEY hKey) {
 
 extern "C" HANDLE __stdcall Hook_CreateFileA(LPCSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode,
 	LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes, HANDLE hTemplateFile) {
-	if (mischook_debug & MISCHOOK_DEBUG_PATHING)
+	if (registry_debug & REGISTRY_DEBUG_PATHING)
 		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> CreateFileA(%s, 0x%08X, 0x%08X, 0x%08X, 0x%08X, 0x%08X, 0x%08X)\n", _ReturnAddress(), lpFileName,
 			dwDesiredAccess, dwShareMode, lpSecurityAttributes, dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
 
@@ -624,7 +550,7 @@ extern "C" HANDLE __stdcall Hook_CreateFileA(LPCSTR lpFileName, DWORD dwDesiredA
 			memset(buf, 0, sizeof(buf));
 
 			HANDLE hFileHandle = CreateFileA(AdjustSource(buf, lpFileName), dwDesiredAccess, dwShareMode, lpSecurityAttributes, dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
-			if (mischook_debug & MISCHOOK_DEBUG_PATHING)
+			if (registry_debug & REGISTRY_DEBUG_PATHING)
 				ConsoleLog(LOG_DEBUG, "MISC: (Modification): 0x%08X -> CreateFileA(%s, 0x%08X, 0x%08X, 0x%08X, 0x%08X, 0x%08X, 0x%08X) (0x%08x)\n", _ReturnAddress(), lpFileName,
 					dwDesiredAccess, dwShareMode, lpSecurityAttributes, dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile, hFileHandle);
 			return hFileHandle;
@@ -634,7 +560,7 @@ extern "C" HANDLE __stdcall Hook_CreateFileA(LPCSTR lpFileName, DWORD dwDesiredA
 }
 
 extern "C" HANDLE __stdcall Hook_FindFirstFileA(LPCSTR lpFileName, LPWIN32_FIND_DATAA lpFindFileData) {
-	if (mischook_debug & MISCHOOK_DEBUG_PATHING)
+	if (registry_debug & REGISTRY_DEBUG_PATHING)
 		ConsoleLog(LOG_DEBUG, "MISC: 0x%08X -> FindFirstFileA(%s, 0x%08X)\n", _ReturnAddress(), lpFileName, lpFindFileData);
 
 	if (iRegPathHookMode == REGPATH_SC2K1996) {
@@ -645,7 +571,7 @@ extern "C" HANDLE __stdcall Hook_FindFirstFileA(LPCSTR lpFileName, LPWIN32_FIND_
 			memset(buf, 0, sizeof(buf));
 
 			HANDLE hFileHandle = FindFirstFileA(AdjustSource(buf, lpFileName), lpFindFileData);
-			if (mischook_debug & MISCHOOK_DEBUG_PATHING)
+			if (registry_debug & REGISTRY_DEBUG_PATHING)
 				ConsoleLog(LOG_DEBUG, "MISC: (Modification): 0x%08X -> FindFirstFileA(%s, 0x%08X) (0x%08x)\n", _ReturnAddress(), buf, lpFindFileData, hFileHandle);
 			return hFileHandle;
 		}
@@ -668,6 +594,9 @@ void InstallRegistryPathingHooks_SC2K1996(void) {
 	// Install RegCloseKey hook
 	*(DWORD*)(0x4EF810) = (DWORD)Hook_RegCloseKey;
 
+	// Install RegOpenKeyExA
+	*(DWORD*)(0x4EF818) = (DWORD)Hook_RegOpenKeyExA;
+
 	// Install CreateFileA hook
 	*(DWORD*)(0x4EFADC) = (DWORD)Hook_CreateFileA;
 
@@ -678,11 +607,14 @@ void InstallRegistryPathingHooks_SC2K1996(void) {
 void InstallRegistryPathingHooks_SC2K1995(void) {
 	iRegPathHookMode = REGPATH_SC2K1995;
 
-	// Install RegSetValueExA hook
-	*(DWORD*)(0X4EE7A8) = (DWORD)Hook_RegSetValueExA;
+	// Install RegOpenKeyExA
+	*(DWORD*)(0x4EE79C) = (DWORD)Hook_RegOpenKeyExA;
 
 	// Install RegQueryValueExA hook
 	*(DWORD*)(0x4EE7A4) = (DWORD)Hook_RegQueryValueExA;
+
+	// Install RegSetValueExA hook
+	*(DWORD*)(0X4EE7A8) = (DWORD)Hook_RegSetValueExA;
 
 	// Install RegCreateKeyExA hook
 	*(DWORD*)(0x4EE7A0) = (DWORD)Hook_RegCreateKeyExA;
@@ -694,11 +626,14 @@ void InstallRegistryPathingHooks_SC2K1995(void) {
 void InstallRegistryPathingHooks_SC2KDemo(void) {
 	iRegPathHookMode = REGPATH_SC2KDEMO;
 
-	// Install RegSetValueExA hook
-	*(DWORD*)(0X4D7768) = (DWORD)Hook_RegSetValueExA;
-
 	// Install RegQueryValueExA hook
 	*(DWORD*)(0x4D7760) = (DWORD)Hook_RegQueryValueExA;
+
+	// Install RegOpenKeyExA
+	*(DWORD*)(0x4D7764) = (DWORD)Hook_RegOpenKeyExA;
+
+	// Install RegSetValueExA hook
+	*(DWORD*)(0X4D7768) = (DWORD)Hook_RegSetValueExA;
 
 	// Install RegCreateKeyExA hook
 	*(DWORD*)(0x4D776C) = (DWORD)Hook_RegCreateKeyExA;

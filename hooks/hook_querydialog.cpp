@@ -11,6 +11,7 @@
 
 #undef UNICODE
 #include <windows.h>
+#include <windowsx.h>
 #include <psapi.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,23 +23,31 @@
 
 static DWORD dwDummy;
 
-static WORD iGlobalTileX, iGlobalTileY;
+typedef struct {
+	WORD iTileX;
+	WORD iTileY;
+} query_coords_info;
 
 BOOL CALLBACK AdvancedQueryDialogProc(HWND hwndDlg, UINT message, WPARAM wParam, LPARAM lParam) {
-	WORD iTileX = iGlobalTileX;
-	WORD iTileY = iGlobalTileY;
+	query_coords_info *qci;
+	WORD iTileX, iTileY;
 	std::string strTileHeader;
 	std::string strTileInfo;
-	int iTileID;
+	BYTE iTileID;
 
 	switch (message) {
 	case WM_INITDIALOG:
+		SetWindowLong(hwndDlg, GWL_USERDATA, lParam);
+		qci = (query_coords_info *)lParam;
+
+		iTileX = qci->iTileX;
+		iTileY = qci->iTileY;
 		// Build the header string
-		iTileID = GetTileID(iGlobalTileX, iGlobalTileY);
-		if (iTileID == 0) {
-			if (dwMapXBIT[iTileX][iTileY].b.iWater && dwMapXBIT[iTileX][iTileY].b.iSaltWater)
+		iTileID = GetTileID(iTileX, iTileY);
+		if (iTileID == TILE_CLEAR) {
+			if (XBITReturnIsWater(iTileX, iTileY) && XBITReturnIsSaltWater(iTileX ,iTileY))
 				strTileHeader = "Salt water";
-			else if (dwMapXBIT[iTileX][iTileY].b.iWater)
+			else if (XBITReturnIsWater(iTileX, iTileY))
 				strTileHeader = "Fresh water";
 		} else
 			strTileHeader = szTileNames[iTileID];
@@ -53,42 +62,42 @@ BOOL CALLBACK AdvancedQueryDialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
 		strTileHeader += std::to_string(iTileY);
 
 		// Build the data string
-		strTileInfo =  GetZoneName(dwMapXZON[iTileX][iTileY].b.iZoneType);
+		strTileInfo =  GetZoneName(XZONReturnZone(iTileX, iTileY));
 		strTileInfo += "\n";
 		
 		// Altitude/depth
-		if (dwMapXBIT[iTileX][iTileY].b.iWater && dwMapALTM[iTileX][iTileY].w.iLandAltitude < wWaterLevel)
-			strTileInfo += std::to_string(100 * (wWaterLevel - dwMapALTM[iTileX][iTileY].w.iLandAltitude) - 50);
-		else if (dwMapXTER[iTileX][iTileY].iTileID && dwMapXTER[iTileX][iTileY].iTileID < 0x10)
-			strTileInfo += std::to_string(25 * (4 * (dwMapALTM[iTileX][iTileY].w.iLandAltitude - wWaterLevel) + 4));
+		if (XBITReturnIsWater(iTileX, iTileY) && ALTMReturnLandAltitude(iTileX, iTileY) < wWaterLevel)
+			strTileInfo += std::to_string(100 * (wWaterLevel - ALTMReturnLandAltitude(iTileX, iTileY)) - 50);
+		else if (GetTerrainTileID(iTileX, iTileY) && GetTerrainTileID(iTileX, iTileY) < SUBMERGED_00)
+			strTileInfo += std::to_string(25 * (4 * (ALTMReturnLandAltitude(iTileX, iTileY) - wWaterLevel) + 4));
 		else
-			strTileInfo += std::to_string(100 * (dwMapALTM[iTileX][iTileY].w.iLandAltitude - wWaterLevel) + 50);
+			strTileInfo += std::to_string(100 * (ALTMReturnLandAltitude(iTileX, iTileY) - wWaterLevel) + 50);
 		strTileInfo += " feet ";
-		if (dwMapXBIT[iTileX][iTileY].b.iWater && dwMapALTM[iTileX][iTileY].w.iLandAltitude < wWaterLevel)
+		if (XBITReturnIsWater(iTileX, iTileY) && ALTMReturnLandAltitude(iTileX, iTileY) < wWaterLevel)
 			strTileInfo += "deep ";
 		strTileInfo += "(ALTM: ";
-		strTileInfo += HexPls(*(WORD*)(&dwMapALTM[iTileX][iTileY].w), 4);
+		strTileInfo += HexPls(ALTMReturnMask(iTileX, iTileY), 4);
 		strTileInfo += ")\n";
 
 		// Land value
 		strTileInfo += "$";
-		strTileInfo += std::to_string(dwMapXVAL[iTileX >> 1][iTileY >> 1].bBlock + 1);
+		strTileInfo += std::to_string(GetXVALByteDataWithNormalCoordinates(iTileX, iTileY) + 1);
 		strTileInfo += ",000/acre\n";
 
 		// Crime
-		strTileInfo += GetLowHighScale(dwMapXCRM[iTileX >> 1][iTileY >> 1].bBlock);
+		strTileInfo += GetLowHighScale(GetXCRMByteDataWithNormalCoordinates(iTileX, iTileY));
 		strTileInfo += " (XCRM: ";
-		strTileInfo += std::to_string(dwMapXCRM[iTileX >> 1][iTileY >> 1].bBlock);
+		strTileInfo += std::to_string(GetXCRMByteDataWithNormalCoordinates(iTileX, iTileY));
 		strTileInfo += ")\n";
 
 		// Pollution
-		strTileInfo += GetLowHighScale(dwMapXPLT[iTileX >> 1][iTileY >> 1].bBlock);
+		strTileInfo += GetLowHighScale(GetXPLTByteDataWithNormalCoordinates(iTileX, iTileY));
 		strTileInfo += " (XPLT: ";
-		strTileInfo += std::to_string(dwMapXPLT[iTileX >> 1][iTileY >> 1].bBlock);
+		strTileInfo += std::to_string(GetXPLTByteDataWithNormalCoordinates(iTileX, iTileY));
 		strTileInfo += ")\n\n";
 
 		// Raw XZON data
-		switch (dwMapXZON[iTileX][iTileY].b.iCorners) {
+		switch (XZONReturnCornerMask(iTileX, iTileY)) {
 		case CORNER_NONE:
 			strTileInfo += "No corners";
 			break;
@@ -109,85 +118,88 @@ BOOL CALLBACK AdvancedQueryDialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
 			break;
 		}
 		strTileInfo += ", iZoneID ";
-		strTileInfo += HexPls(dwMapXZON[iTileX][iTileY].b.iZoneType, 1);
+		strTileInfo += HexPls(XZONReturnZone(iTileX, iTileY), 1);
 		strTileInfo += "\n";
 
 		// XBIT
-		if (!*(BYTE*)(&dwMapXBIT[iTileX][iTileY].b))
-			strTileInfo += "none (XBIT: 0x00)\n";
+		if (!XBITReturnMask(iTileX, iTileY))
+			strTileInfo += "none (XBIT: 0x00)\n\n";
 		else {
 			// XXX - this code sucks, more so than the rest of this function
 			int i = 0;
 
-			if (dwMapXBIT[iTileX][iTileY].b.iPowerable) {
+			if (XBITReturnIsPowerable(iTileX, iTileY)) {
 				i++;
 				strTileInfo += "powerable ";
 			}
-			if (dwMapXBIT[iTileX][iTileY].b.iPowered) {
+			if (XBITReturnIsPowered(iTileX, iTileY)) {
 				i++;
 				strTileInfo += "powered ";
 			}
-			if (dwMapXBIT[iTileX][iTileY].b.iPiped) {
+			if (XBITReturnIsPiped(iTileX, iTileY)) {
 				i++;
 				strTileInfo += "piped ";
 			}
-			if (dwMapXBIT[iTileX][iTileY].b.iWatered) {
+			if (XBITReturnIsWatered(iTileX, iTileY)) {
 				i++;
 				strTileInfo += "watered ";
 				if (i == 5)
 					strTileInfo += "\n";
 			}
-			if (dwMapXBIT[iTileX][iTileY].b.iXVALMask) {
+			if (XBITReturnIsMark(iTileX, iTileY)) {
 				i++;
-				strTileInfo += "xvalmask ";
+				strTileInfo += "mark ";
 				if (i == 5)
 					strTileInfo += "\n";
 			}
-			if (dwMapXBIT[iTileX][iTileY].b.iWater) {
+			if (XBITReturnIsWater(iTileX, iTileY)) {
 				i++;
 				strTileInfo += "water ";
 				if (i == 5)
 					strTileInfo += "\n";
 			}
-			if (dwMapXBIT[iTileX][iTileY].b.iRotated) {
+			if (XBITReturnIsFlipped(iTileX, iTileY)) {
 				i++;
-				strTileInfo += "rotated ";
+				strTileInfo += "flipped ";
 				if (i == 5)
 					strTileInfo += "\n";
 			}
-			if (dwMapXBIT[iTileX][iTileY].b.iSaltWater) {
+			if (XBITReturnIsSaltWater(iTileX, iTileY)) {
 				i++;
 				strTileInfo += "saltwater ";
 				if (i == 5)
 					strTileInfo += "\n";
 			}
 			strTileInfo += "(XBIT: ";
-			strTileInfo += HexPls(*(BYTE*)(&dwMapXBIT[iTileX][iTileY].b), 1);
+			strTileInfo += HexPls(XBITReturnMask(iTileX, iTileY), 1);
 			strTileInfo += ")\n";
 			if (i < 5)
 				strTileInfo += "\n";
 		}
 
 		// XUND
-		if (dwMapXUND[iTileX][iTileY].iTileID > 35)
+		if (GetUndergroundTileID(iTileX, iTileY) > UNDER_TILE_SUBWAYENTRANCE)
 			strTileInfo += "Unknown";
 		else
-			strTileInfo += szUndergroundNames[dwMapXUND[iTileX][iTileY].iTileID];
+			strTileInfo += szUndergroundNames[GetUndergroundTileID(iTileX, iTileY)];
 		strTileInfo += " (XUND: ";
-		strTileInfo += HexPls(dwMapXUND[iTileX][iTileY].iTileID, 2);
+		strTileInfo += HexPls(GetUndergroundTileID(iTileX, iTileY), 2);
 		strTileInfo += ")\n";
 
 		// Microsim info
-		if (dwMapXTXT[iTileX][iTileY].bTextOverlay < 0x34 || dwMapXTXT[iTileX][iTileY].bTextOverlay > 0xC8)
+		BYTE bTextOverlay;
+		
+		bTextOverlay = XTXTGetTextOverlayID(iTileX, iTileY); // Entries > 51 aren't user-modifiable label/text entries.
+		if (bTextOverlay <= MIN_SIM_TEXT_ENTRIES || bTextOverlay > MAX_SIM_TEXT_ENTRIES)
 			strTileInfo += "None\nN/A\nN/A\nN/A\nN/A";
 		else {
-			int iMicrosimID = dwMapXTXT[iTileX][iTileY].bTextOverlay - 0x33;
-			strTileInfo += GetXLABEntry(iMicrosimID + 0x33);
+			BYTE iMicrosimID = bTextOverlay - MIN_SIM_TEXT_ENTRIES; // The MicrosimID being calculated from entry 52 and beyond but subtracted by the non-user modifiable starting value.
+			strTileInfo += GetXLABEntry(bTextOverlay);
 			strTileInfo += " (iMicrosimID " + std::to_string(iMicrosimID) + " / " + HexPls(iMicrosimID, 2) + ")\n";
-			strTileInfo += std::to_string(pMicrosimArr[iMicrosimID].bMicrosimData[0]) + " / " + HexPls(pMicrosimArr[iMicrosimID].bMicrosimData[0], 2) + "\n";
-			strTileInfo += std::to_string(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[1])) + " / " + HexPls(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[1]), 2) + "\n";
-			strTileInfo += std::to_string(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[3])) + " / " + HexPls(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[3]), 2) + "\n";
-			strTileInfo += std::to_string(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[5])) + " / " + HexPls(*(WORD*)(&pMicrosimArr[iMicrosimID].bMicrosimData[5]), 2);
+			strTileInfo += std::to_string(GetMicroSimulatorStat0(iMicrosimID)) + " / " + HexPls(GetMicroSimulatorStat0(iMicrosimID), 2) + "\n";
+			strTileInfo += std::to_string(GetMicroSimulatorStat1(iMicrosimID)) + " / " + HexPls(GetMicroSimulatorStat1(iMicrosimID), 2) + "\n";
+			strTileInfo += std::to_string(GetMicroSimulatorStat2(iMicrosimID)) + " / " + HexPls(GetMicroSimulatorStat2(iMicrosimID), 2) + "\n";
+			strTileInfo += std::to_string(GetMicroSimulatorStat3(iMicrosimID)) + " / " + HexPls(GetMicroSimulatorStat3(iMicrosimID), 2);
 		}
 
 		SetDlgItemText(hwndDlg, IDC_STATIC_TILENAME, strTileHeader.c_str());
@@ -198,44 +210,67 @@ BOOL CALLBACK AdvancedQueryDialogProc(HWND hwndDlg, UINT message, WPARAM wParam,
 		return TRUE;
 
 	case WM_COMMAND:
-		switch (LOWORD(wParam)) {
+		switch (GET_WM_COMMAND_ID(wParam, lParam)) {
 		case IDOK:
-			EndDialog(hwndDlg, wParam);
+			EndDialog(hwndDlg, 1);
+			return TRUE;
+		case IDCANCEL:
+			EndDialog(hwndDlg, 0);
 			return TRUE;
 		}
 	}
 	return FALSE;
 }
 
-// Inserted into jump table at 0x43F924 in place of `dd offset loc_43F80C`
-extern "C" void _declspec(naked) Hook_QueryJumpTable(void) {
-	__asm {
-		// Save all registers because this is one of those "hic sunt dracones" moments
-		pusha
-		mov [iGlobalTileX], bx
-		mov [iGlobalTileY], bp
+static BOOL DoAdvancedQuery(__int16 x, __int16 y) {
+	CSimcityAppPrimary *pSCApp;
+	CMainFrame *pMainFrm;
+	CCityToolBar *pCityToolBar;
+	query_coords_info qci;
+
+	pSCApp = &pCSimcityAppThis;
+	pMainFrm = (CMainFrame *)pSCApp->m_pMainWnd;
+	pCityToolBar = &pMainFrm->dwMFCityToolBar;
+
+	if (bUseAdvancedQuery) {
+		if (GetAsyncKeyState(VK_MENU) < 0) {
+			memset(&qci, 0, sizeof(qci));
+			qci.iTileX = x;
+			qci.iTileY = y;
+
+			Game_CityToolBar_ToolMenuDisable(pCityToolBar);
+			DialogBoxParamA(hSC2KFixModule, MAKEINTRESOURCE(IDD_ADVANCEDQUERY), GameGetRootWindowHandle(), AdvancedQueryDialogProc, (LPARAM)&qci);
+			Game_CityToolBar_ToolMenuEnable(pCityToolBar);
+			return TRUE;
+		}
 	}
-
-	DWORD *pCityToolBar;
-
-	pCityToolBar = &((DWORD *)pCWndRootWindow)[102];
-
-	// See if we need to intercept
-	if (GetAsyncKeyState(VK_MENU) < 0) {
-		Game_ToolMenuDisable(pCityToolBar);
-		DialogBox(hSC2KFixModule, MAKEINTRESOURCE(IDD_ADVANCEDQUERY), GameGetRootWindowHandle(), AdvancedQueryDialogProc);
-		Game_ToolMenuEnable(pCityToolBar);
-		__asm popa
-		GAMEJMP(0x43F837)
-	}
-
-	// Go onto the regular call otherwise
-	__asm popa
-	GAMEJMP(0x43F80C)
+	return FALSE;
 }
 
-void InstallQueryHooks(void) {
-	// Install the query hook into the jump table
-	VirtualProtect((LPVOID)0x43F924, 4, PAGE_READWRITE, &dwDummy);
-	*(DWORD*)0x43F924 = (DWORD)Hook_QueryJumpTable;
+extern "C" void __cdecl Hook_QuerySpecificItem(__int16 x, __int16 y) {
+
+	if (!DoAdvancedQuery(x, y))
+		GameMain_QuerySpecificItem(x, y);
+}
+
+extern "C" void __cdecl Hook_QueryGeneralItem(__int16 x, __int16 y) {
+
+	if (!DoAdvancedQuery(x, y))
+		GameMain_QueryGeneralItem(x, y);
+}
+
+void InstallQueryHooks_SC2K1996(void) {
+	ConsoleLog(LOG_DEBUG, "MISC: Installing Query Hooks\n");
+
+	VirtualProtect((LPVOID)0x401CFD, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
+	NEWJMP((LPVOID)0x401CFD, Hook_QuerySpecificItem);
+
+	VirtualProtect((LPVOID)0x402E19, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
+	NEWJMP((LPVOID)0x402E19, Hook_QueryGeneralItem);
+
+	// Move the alt+query bottom text to not be blocked by the OK button
+	VirtualProtect((LPVOID)0x428FB1, 3, PAGE_EXECUTE_READWRITE, &dwDummy);
+	*(BYTE*)0x428FB1 = 0x83;
+	*(BYTE*)0x428FB2 = 0xE8;
+	*(BYTE*)0x428FB3 = 0x32;
 }

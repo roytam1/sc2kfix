@@ -46,6 +46,7 @@ int LoadNativeCodeHooks(HMODULE hModule) {
 		stHookFn.iPriority = stModInfo->stHooks[i].iHookPriority;
 		stHookFn.iType = HOOKFN_TYPE_NATIVE;
 		stHookFn.pFunction = (void*)GetProcAddress(hModule, stModInfo->stHooks[i].szHookName);
+		stHookFn.bEnabled = TRUE;
 		if (!stHookFn.pFunction) {
 			ConsoleLog(LOG_WARNING, "MODS: Couldn't load hook %s from native code mod %s.\n", stModInfo->stHooks[i].szHookName, mapLoadedNativeMods[hModule].szModShortName);
 			continue;
@@ -59,6 +60,9 @@ int LoadNativeCodeHooks(HMODULE hModule) {
 		REGISTER_HOOK(Hook_SaveGame_After);
 		REGISTER_HOOK(Hook_GameDoIdleUpkeep_Before);
 		REGISTER_HOOK(Hook_GameDoIdleUpkeep_After);
+		REGISTER_HOOK(Hook_SimCalendarAdvance_Before);
+		REGISTER_HOOK(Hook_ScenarioSuccessCheck);
+		REGISTER_HOOK(Hook_SimCalendarAdvance_After);
 
 		if (!bHookRegistered) {
 			ConsoleLog(LOG_WARNING, "MODS: Native code mod %s presented invalid hook %s; skipping.\n", mapLoadedNativeMods[hModule].szModShortName, stModInfo->stHooks[i].szHookName);
@@ -88,6 +92,9 @@ void SortHookLists(void) {
 	SORT_HOOKS(Hook_SaveGame_After);
 	SORT_HOOKS(Hook_GameDoIdleUpkeep_Before);
 	SORT_HOOKS(Hook_GameDoIdleUpkeep_After);
+	SORT_HOOKS(Hook_SimCalendarAdvance_Before);
+	SORT_HOOKS(Hook_ScenarioSuccessCheck);
+	SORT_HOOKS(Hook_SimCalendarAdvance_After);
 
 	if (modloader_debug & MODLOADER_DEBUG_HOOKS)
 		ConsoleLog(LOG_DEBUG, "MODS: Sorted all hooks.\n");

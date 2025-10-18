@@ -1,6 +1,10 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="ReleaseNoKuroko|Win32">
+      <Configuration>ReleaseNoKuroko</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
     <ProjectConfiguration Include="Release|Win32">
       <Configuration>Release</Configuration>
       <Platform>Win32</Platform>
@@ -21,6 +25,13 @@
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
   </ImportGroup>
@@ -29,8 +40,14 @@
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <TargetName>winmm</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">
     <TargetName>winmm</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -43,8 +60,8 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>"include";"kuroko"</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <AdditionalIncludeDirectories>"include";"thirdparty/kuroko";"thirdparty/fluidsynth"</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -61,84 +78,97 @@
       </AdditionalIncludeDirectories>
     </ResourceCompile>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;NDEBUG;SC2KFIX_EXPORTS;NOKUROKO;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>"include";"thirdparty/fluidsynth"</AdditionalIncludeDirectories>
+      <LanguageStandard_C>stdc17</LanguageStandard_C>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableUAC>false</EnableUAC>
+      <ModuleDefinitionFile>hooks\exports.def</ModuleDefinitionFile>
+      <DataExecutionPrevention>false</DataExecutionPrevention>
+      <AdditionalDependencies>"comctl32.lib";"psapi.lib";"shlwapi.lib";"winmm.lib";"wininet.lib";"dbghelp.lib";"wsock32.lib";"ws2_32.lib";%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <ResourceCompile>
+      <AdditionalIncludeDirectories>
+      </AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NOKUROKO;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="include\hooklists.h" />
     <ClInclude Include="include\json.hpp" />
+    <ClInclude Include="include\mfc3xhelp.h" />
     <ClInclude Include="include\music.h" />
+    <ClInclude Include="include\sc2kclasses.h" />
     <ClInclude Include="include\sc2kfix.h" />
     <ClInclude Include="include\sc2k_demo.h" />
     <ClInclude Include="include\smk.h" />
     <ClInclude Include="include\winmm_exports.h" />
     <ClInclude Include="include\sc2k_1996.h" />
-    <ClInclude Include="kuroko\dirent.h" />
-    <ClInclude Include="kuroko\kuroko\chunk.h" />
-    <ClInclude Include="kuroko\kuroko\compiler.h" />
-    <ClInclude Include="kuroko\kuroko\debug.h" />
-    <ClInclude Include="kuroko\kuroko\kuroko.h" />
-    <ClInclude Include="kuroko\kuroko\memory.h" />
-    <ClInclude Include="kuroko\kuroko\object.h" />
-    <ClInclude Include="kuroko\kuroko\scanner.h" />
-    <ClInclude Include="kuroko\kuroko\table.h" />
-    <ClInclude Include="kuroko\kuroko\threads.h" />
-    <ClInclude Include="kuroko\kuroko\util.h" />
-    <ClInclude Include="kuroko\kuroko\value.h" />
-    <ClInclude Include="kuroko\kuroko\vm.h" />
-    <ClInclude Include="kuroko\methods.h" />
-    <ClInclude Include="kuroko\opcodes.h" />
-    <ClInclude Include="kuroko\opcode_enum.h" />
-    <ClInclude Include="kuroko\private.h" />
-    <ClInclude Include="kuroko\pthread.h" />
-    <ClInclude Include="kuroko\unistd.h" />
-    <ClInclude Include="kuroko\vendor\rline.h" />
     <ClInclude Include="resource.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\audio.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\event.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\gen.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\ladspa.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\log.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\midi.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\misc.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\mod.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\seq.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\seqbind.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\settings.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\sfont.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\shell.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\synth.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\types.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\version.h" />
+    <ClInclude Include="thirdparty\fluidsynth\fluidsynth\voice.h" />
+    <ClInclude Include="thirdparty\kuroko\dirent.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClInclude>
+    <ClInclude Include="thirdparty\kuroko\methods.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClInclude>
+    <ClInclude Include="thirdparty\kuroko\opcodes.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClInclude>
+    <ClInclude Include="thirdparty\kuroko\opcode_enum.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClInclude>
+    <ClInclude Include="thirdparty\kuroko\private.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClInclude>
+    <ClInclude Include="thirdparty\kuroko\pthread.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClInclude>
+    <ClInclude Include="thirdparty\kuroko\unistd.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClInclude>
+    <ClInclude Include="thirdparty\kuroko\vendor\rline.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="hooks\hook_animation.cpp" />
     <ClCompile Include="hooks\hook_sc2kdemo_miscellaneous.cpp" />
-    <ClCompile Include="kuroko\builtins.c" />
-    <ClCompile Include="kuroko\chunk.c" />
-    <ClCompile Include="kuroko\compiler.c" />
-    <ClCompile Include="kuroko\debug.c" />
-    <ClCompile Include="kuroko\exceptions.c" />
-    <ClCompile Include="kuroko\kuroko.c" />
-    <ClCompile Include="kuroko\memory.c" />
-    <ClCompile Include="kuroko\modules\module_dis.c" />
-    <ClCompile Include="kuroko\modules\module_fileio.c" />
-    <ClCompile Include="kuroko\modules\module_gc.c" />
-    <ClCompile Include="kuroko\modules\module_locale.c" />
-    <ClCompile Include="kuroko\modules\module_math.c" />
-    <ClCompile Include="kuroko\modules\module_os.c" />
-    <ClCompile Include="kuroko\modules\module_random.c" />
-    <ClCompile Include="kuroko\modules\module_socket.c" />
-    <ClCompile Include="kuroko\modules\module_stat.c" />
-    <ClCompile Include="kuroko\modules\module_time.c" />
-    <ClCompile Include="kuroko\modules\module_timeit.c" />
-    <ClCompile Include="kuroko\modules\module_wcwidth.c" />
-    <ClCompile Include="kuroko\modules\module__pheap.c" />
-    <ClCompile Include="kuroko\object.c" />
-    <ClCompile Include="kuroko\obj_base.c" />
-    <ClCompile Include="kuroko\obj_bytes.c" />
-    <ClCompile Include="kuroko\obj_dict.c" />
-    <ClCompile Include="kuroko\obj_function.c" />
-    <ClCompile Include="kuroko\obj_gen.c" />
-    <ClCompile Include="kuroko\obj_list.c" />
-    <ClCompile Include="kuroko\obj_long.c" />
-    <ClCompile Include="kuroko\obj_numeric.c" />
-    <ClCompile Include="kuroko\obj_range.c" />
-    <ClCompile Include="kuroko\obj_set.c" />
-    <ClCompile Include="kuroko\obj_slice.c" />
-    <ClCompile Include="kuroko\obj_str.c" />
-    <ClCompile Include="kuroko\obj_tuple.c" />
-    <ClCompile Include="kuroko\obj_typing.c" />
-    <ClCompile Include="kuroko\parseargs.c" />
-    <ClCompile Include="kuroko\scanner.c" />
-    <ClCompile Include="kuroko\sys.c" />
-    <ClCompile Include="kuroko\table.c" />
-    <ClCompile Include="kuroko\threads.c" />
-    <ClCompile Include="kuroko\value.c" />
-    <ClCompile Include="kuroko\vendor\pthread.cpp" />
-    <ClCompile Include="kuroko\vendor\rline.c" />
-    <ClCompile Include="kuroko\vm.c" />
+    <ClCompile Include="hooks\hook_guzzardo.cpp" />
+    <ClCompile Include="hooks\hook_spritesandtilesets.cpp" />
+    <ClCompile Include="hooks\hook_tilegrowthorplacement.cpp" />
+    <ClCompile Include="hooks\hook_toolbars.cpp" />
     <ClCompile Include="modules\console.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="hooks\hook_mciSendCommand.cpp" />
@@ -146,7 +176,9 @@
     <ClCompile Include="hooks\hook_querydialog.cpp" />
     <ClCompile Include="hooks\hook_sndPlaySound.cpp" />
     <ClCompile Include="hooks\hook_mmtimers.cpp" />
-    <ClCompile Include="modules\kuroko_glue.cpp" />
+    <ClCompile Include="modules\kuroko_glue.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="modules\military.cpp" />
     <ClCompile Include="modules\mod_loader.cpp" />
     <ClCompile Include="modules\music.cpp" />
@@ -156,15 +188,151 @@
     <ClCompile Include="modules\scurkfix.cpp" />
     <ClCompile Include="modules\settings.cpp" />
     <ClCompile Include="modules\status_dialog.cpp" />
+    <ClCompile Include="modules\track_config.cpp" />
     <ClCompile Include="modules\update_notifier.cpp" />
     <ClCompile Include="modules\smk.cpp" />
+    <ClCompile Include="modules\scenario_status.cpp" />
+    <ClCompile Include="thirdparty\kuroko\builtins.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\chunk.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\compiler.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\debug.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\exceptions.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\kuroko.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\memory.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\modules\module_dis.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\modules\module_fileio.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\modules\module_gc.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\modules\module_locale.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\modules\module_math.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\modules\module_os.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\modules\module_random.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\modules\module_socket.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\modules\module_stat.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\modules\module_time.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\modules\module_timeit.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\modules\module_wcwidth.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\modules\module__pheap.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\object.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\obj_base.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\obj_bytes.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\obj_dict.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\obj_function.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\obj_gen.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\obj_list.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\obj_long.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\obj_numeric.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\obj_range.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\obj_set.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\obj_slice.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\obj_str.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\obj_tuple.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\obj_typing.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\parseargs.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\scanner.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\sys.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\table.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\threads.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\value.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\vendor\pthread.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\vendor\rline.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="thirdparty\kuroko\vm.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="utility.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="hooks\exports.def" />
-    <None Include="kuroko\wcwidth._h" />
     <None Include="README.md" />
     <None Include="script.md" />
+    <None Include="thirdparty\kuroko\wcwidth._h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseNoKuroko|Win32'">true</ExcludedFromBuild>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="sc2kfix.rc" />

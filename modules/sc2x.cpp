@@ -1,8 +1,10 @@
 // sc2kfix modules/sc2x.cpp: JSON-based extensible save game file format
+//                           and hooks for fixing save/load bugs.
 // (c) 2025 sc2kfix project (https://sc2kfix.net) - released under the MIT license
 
 #undef UNICODE
 #include <windows.h>
+#include <shlwapi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <intrin.h>
@@ -30,10 +32,17 @@
 #define SC2X_DEBUG DEBUG_FLAGS_EVERYTHING
 #endif
 
+#if !NOKUROKO
 #define BAILOUT(s, ...) do { \
 	ConsoleLog(LOG_ERROR, "SC2X: " s, __VA_ARGS__); \
 	return 0; \
 } while (0)
+#else
+#define BAILOUT(s, ...) do { \
+	ConsoleLog(LOG_ERROR, "SAVE: " s, __VA_ARGS__); \
+	return 0; \
+} while (0)
+#endif
 
 UINT sc2x_debug = SC2X_DEBUG;
 
@@ -56,7 +65,7 @@ void LoadInterleavedBudgetVanilla(budget_t* pTarget, DWORD* pSource) {
 #ifdef SC2X_USE_VANILLA_LOAD_REPLACEMENT
 // WIP replacement for CSimcityApp::DoLoadGame for vanilla save game files.
 // This is incredibly ugly and should probably be rewritten at some point.
-BOOL SC2XLoadVanillaGame(DWORD* pThis, const char* szFileName) {
+BOOL SC2XLoadVanillaGame(CSimcityAppPrimary* pThis, const char* szFileName) {
 	if (!szFileName)
 		return FALSE;
 
@@ -88,9 +97,8 @@ BOOL SC2XLoadVanillaGame(DWORD* pThis, const char* szFileName) {
 
 		for (int i = 0; i < iChunkSize; ) {
 			if (*(DWORD*)&sc2file[iChunkStart] == IFF_HEAD('C', 'N', 'A', 'M')) {
-				CMFC3XString* (__thiscall * H_CStringOperatorSet)(CMFC3XString*, const char*) = (CMFC3XString * (__thiscall*)(CMFC3XString*, const char*))0x4A2E6A;
 				std::string strCityName((char*)&sc2file[iChunkStart + 9]);
-				H_CStringOperatorSet(&pszCityName, strCityName.c_str());
+				GameMain_String_OperatorSet(&pszCityName, (char *)strCityName.c_str());
 				i += iChunkSize;
 				iConvertedChunks++;
 			}
@@ -237,7 +245,7 @@ BOOL SC2XLoadVanillaGame(DWORD* pThis, const char* szFileName) {
 				}
 
 				for (int i = 0; i < 8; i++)
-					wCityResidentialDemand[i] = ntohl(*(DWORD*)&pChunkMISC[i * 4]);
+					wCityDemand[i] = ntohl(*(DWORD*)&pChunkMISC[i * 4]);
 				i += 4 * 8;
 
 				for (int i = 0; i < 17; i++)
@@ -340,7 +348,8 @@ BOOL SC2XLoadVanillaGame(DWORD* pThis, const char* szFileName) {
 				wSubwayXUNDCount = ntohl(*(DWORD*)&pChunkMISC[i]);
 				i += 4;
 
-				wSimulationSpeed = ntohl(*(DWORD*)&pChunkMISC[i]);		// XXX - CHECK IF THIS NEEDS TO BE THISCASTED
+				pThis->wSCAGameSpeedLOW = ntohl(*(DWORD*)&pChunkMISC[i]);		// XXX - CHECK IF THIS NEEDS TO BE THISCASTED
+				pThis->wSCAGameSpeedHIGH = pThis->wSCAGameSpeedLOW;
 				i += 4;
 
 				bOptionsAutoBudget = ntohl(*(DWORD*)&pChunkMISC[i]);
@@ -349,12 +358,11 @@ BOOL SC2XLoadVanillaGame(DWORD* pThis, const char* szFileName) {
 				bOptionsAutoGoto = ntohl(*(DWORD*)&pChunkMISC[i]);
 				i += 4;
 
-				pThis[121] = ntohl(*(DWORD*)&pChunkMISC[i]);	// XXX - needs a good name
+				pThis->dwSCAGameSound = ntohl(*(DWORD*)&pChunkMISC[i]);	// XXX - needs a good name
 				i += 4;
 
-				bOptionsMusicEnabled = ntohl(*(DWORD*)&pChunkMISC[i]);
-				pThis[120] = bOptionsMusicEnabled;				// XXX - is this the same?
-				if (!bOptionsMusicEnabled) {
+				pThis->dwSCAGameMusic = ntohl(*(DWORD*)&pChunkMISC[i]);
+				if (!pThis->dwSCAGameMusic) {
 					// Stop music
 					__asm {
 						push ecx
@@ -645,12 +653,22 @@ BOOL SC2XLoadVanillaGame(DWORD* pThis, const char* szFileName) {
 }
 #endif
 
+// Function prototype: HOOKCB void Hook_LoadGame_Before(void)
+// Cannot be ignored.
+// SPECIAL NOTE: When the SC2X save format is implemented, this will be where mods will have a
+//   chance to pre-load any information and optionally manipulate the save file before it's parsed
+//   by sc2kfix and loaded into the SimCity 2000 engine.
 std::vector<hook_function_t> stHooks_Hook_LoadGame_Before;
+
+// Function prototype: HOOKCB void Hook_LoadGame_After(void)
+// Cannot be ignored.
+// SPECIAL NOTE: When the SC2X save format is implemented, this will be where mods will be fed a
+//   pointer to a JSON object wherein they can load their data and version information or a NULL
+//   or similar object to inform them that they have no known state to load.
 std::vector<hook_function_t> stHooks_Hook_LoadGame_After;
 
-extern "C" DWORD __stdcall Hook_LoadGame(void* pFile, char* src) {
-	DWORD(__thiscall * H_SimcityAppDoLoadGame)(void*, void*, char*) = (DWORD(__thiscall*)(void*, void*, char*))0x4302E0;
-	DWORD* pThis;
+extern "C" DWORD __stdcall Hook_LoadGame(CMFC3XFile* pFile, char* src) {
+	CSimcityAppPrimary* pThis;
 	DWORD ret;
 
 	__asm mov [pThis], ecx
@@ -666,15 +684,16 @@ extern "C" DWORD __stdcall Hook_LoadGame(void* pFile, char* src) {
 		if (sc2x_debug & SC2X_DEBUG_LOAD)
 			ConsoleLog(LOG_DEBUG, "SC2X: Saved game iCorruptedFixupSize is %d bytes.\n", iCorruptedFixupSize);
 		infile.close();
-	} else {
+	}
+	else {
 		ConsoleLog(LOG_WARNING, "SC2X: Couldn't open saved game \"%s\" to determine iCorruptedFixupSize.\n", szLoadFileName);
 		ConsoleLog(LOG_WARNING, "SC2X: If this save is corrupted, sc2kfix will not be able to attempt to fix it.\n");
 		iCorruptedFixupSize = 0;
 	}
 
 	for (const auto& hook : stHooks_Hook_LoadGame_Before) {
-		if (hook.iType == HOOKFN_TYPE_NATIVE) {
-			void (*fnHook)(void*, void*, char*) = (void(*)(void*, void*, char*))hook.pFunction;
+		if (hook.iType == HOOKFN_TYPE_NATIVE && hook.bEnabled) {
+			void (*fnHook)(CSimcityAppPrimary*, CMFC3XFile*, char*) = (void(*)(CSimcityAppPrimary*, CMFC3XFile*, char*))hook.pFunction;
 			fnHook(pThis, pFile, src);
 		}
 	}
@@ -689,23 +708,23 @@ extern "C" DWORD __stdcall Hook_LoadGame(void* pFile, char* src) {
 #else
 		if (sc2x_debug & SC2X_DEBUG_LOAD)
 			ConsoleLog(LOG_DEBUG, "SC2X: Passing control to SC2K for load.\n");
-		ret = H_SimcityAppDoLoadGame(pThis, pFile, src);
+		ret = GameMain_SimcityApp_DoLoadGame(pThis, pFile, src);
 #endif
 	} else if (std::regex_search(szLoadFileName, std::regex("\\.[Ss][Cc][Nn]$"))) {
 		if (sc2x_debug & SC2X_DEBUG_LOAD)
 			ConsoleLog(LOG_DEBUG, "SC2X: Saved game is a vanilla SCN file. Passing control to SC2K.\n");
 
-		ret = H_SimcityAppDoLoadGame(pThis, pFile, src);
+		ret = GameMain_SimcityApp_DoLoadGame(pThis, pFile, src);
 	} else if (std::regex_search(szLoadFileName, std::regex("\\.[Cc][Tt][Yy]$"))) {
 		if (sc2x_debug & SC2X_DEBUG_LOAD)
 			ConsoleLog(LOG_DEBUG, "SC2X: Saved game is a SimCity Classic file. Passing control to SC2K.\n");
 
-		ret = H_SimcityAppDoLoadGame(pThis, pFile, src);
+		ret = GameMain_SimcityApp_DoLoadGame(pThis, pFile, src);
 	}
 
 	for (const auto& hook : stHooks_Hook_LoadGame_After) {
-		if (hook.iType == HOOKFN_TYPE_NATIVE) {
-			void (*fnHook)(void*, void*, char*) = (void(*)(void*, void*, char*))hook.pFunction;
+		if (hook.iType == HOOKFN_TYPE_NATIVE && hook.bEnabled) {
+			void (*fnHook)(CSimcityAppPrimary*, CMFC3XFile*, char*) = (void(*)(CSimcityAppPrimary*, CMFC3XFile*, char*))hook.pFunction;
 			fnHook(pThis, pFile, src);
 		}
 	}
@@ -713,28 +732,36 @@ extern "C" DWORD __stdcall Hook_LoadGame(void* pFile, char* src) {
 	return ret;
 }
 
+// Function prototype: HOOKCB void Hook_SaveGame_Before(void)
+// Cannot be ignored.
+// SPECIAL NOTE: When the SC2X save format is implemented, this will be where mods will be fed a
+//   pointer to a JSON object wherein they can save their data and version information.
 std::vector<hook_function_t> stHooks_Hook_SaveGame_Before;
+
+// Function prototype: HOOKCB void Hook_SaveGame_After(void)
+// Cannot be ignored.
+// SPECIAL NOTE: Functionally useless. Likely to end up either being removed before the modding
+//   API is finalized or for its argument to be BOOL bSaveSuccessful.
 std::vector<hook_function_t> stHooks_Hook_SaveGame_After;
 
 extern "C" DWORD __stdcall Hook_SaveGame(CMFC3XString* lpFileName) {
-	DWORD(__thiscall * H_SimcityAppDoSaveGame)(void*, CMFC3XString*) = (DWORD(__thiscall*)(void*, CMFC3XString*))0x432180;
-	DWORD* pThis;
+	CSimcityAppPrimary* pThis;
 	DWORD ret;
 
 	__asm mov [pThis], ecx
 
 	for (const auto& hook : stHooks_Hook_SaveGame_Before) {
-		if (hook.iType == HOOKFN_TYPE_NATIVE) {
-			void (*fnHook)(void*, CMFC3XString*) = (void(*)(void*, CMFC3XString*))hook.pFunction;
+		if (hook.iType == HOOKFN_TYPE_NATIVE && hook.bEnabled) {
+			void (*fnHook)(CSimcityAppPrimary*, CMFC3XString*) = (void(*)(CSimcityAppPrimary*, CMFC3XString*))hook.pFunction;
 			fnHook(pThis, lpFileName);
 		}
 	}
 
-	ret = H_SimcityAppDoSaveGame(pThis, lpFileName);
+	ret = GameMain_SimcityApp_DoSaveGame(pThis, lpFileName);
 
 	for (const auto& hook : stHooks_Hook_SaveGame_After) {
-		if (hook.iType == HOOKFN_TYPE_NATIVE) {
-			void (*fnHook)(void*, CMFC3XString*) = (void(*)(void*, CMFC3XString*))hook.pFunction;
+		if (hook.iType == HOOKFN_TYPE_NATIVE && hook.bEnabled) {
+			void (*fnHook)(CSimcityAppPrimary*, CMFC3XString*) = (void(*)(CSimcityAppPrimary*, CMFC3XString*))hook.pFunction;
 			fnHook(pThis, lpFileName);
 		}
 	}
@@ -763,7 +790,7 @@ void __declspec(naked) Hook_431212(void) {
 		MessageBox(GetActiveWindow(),
 			"sc2kfix has detected a corrupted save file but was unable to recover enough information to "
 			"attempt to fix it. Your game is likely to crash after closing this dialog box. Please file"
-			"a save corruption report on the sc2kfix GitHub issues page (https://github.com/sc2kfix/issues).\n\n"
+			"a save corruption report on the sc2kfix GitHub issues page (https://github.com/sc2kfix/sc2kfix/issues).\n\n"
 
 			"Developer info:\n"
 			"Save header corrupted (FORM header chunk size 0)\n"
@@ -783,7 +810,7 @@ void __declspec(naked) Hook_431212(void) {
 		"SimCity 2000, and load the new save.\n\n"
 
 		"If the game crashes after closing this dialog box or after reloading the new save file, "
-		"please file a report on the sc2kfix GitHub issues page (https://github.com/sc2kfix/issues).\n\n"
+		"please file a report on the sc2kfix GitHub issues page (https://github.com/sc2kfix/sc2kfix/issues).\n\n"
 
 		"Developer info:\n"
 		"Save header corrupted (FORM header chunk size 0)", "sc2kfix warning", MB_OK | MB_ICONWARNING);
@@ -798,7 +825,79 @@ void __declspec(naked) Hook_431212(void) {
 	}
 }
 
-void InstallSaveHooks(void) {
+extern "C" void __cdecl Hook_CheckAndAppendCityExtension(CMFC3XString *lpFileName, char *pSC2) {
+	char szTempFile[MAX_PATH + 1], szTempExt[16 + 1], szTempPath[MAX_PATH + 1];
+	int nLen;
+
+	strcpy_s(szTempFile, sizeof(szTempFile), lpFileName->m_pchData);
+	strcpy_s(szTempExt, sizeof(szTempExt), pSC2);
+	PathStripPathA(szTempFile);
+	_strlwr_s(szTempFile);
+	_strlwr_s(szTempExt);
+	nLen = strlen(szTempFile);
+	// Above 4 in this case since we want to make sure the path-stripped file
+	// is more than just the file extension.
+	if (nLen > 4) {
+		// file + (nLen - 3) so you just get the end extension and compare against that.
+		if (_stricmp(szTempFile + (nLen - 3), szTempExt) != 0) {
+			// Check for a valid last stored city path, otherwise use the default
+			// derived from the game path.
+			if (L_IsPathValid(szLastStoredCityPath))
+				strcpy_s(szTempPath, sizeof(szTempPath), szLastStoredCityPath);
+			else
+				sprintf_s(szTempPath, sizeof(szTempPath), "%s\\Cities\\", szGamePath);
+
+			// Empty the filename string and rebuild it.
+			GameMain_String_Empty(lpFileName);
+			GameMain_String_Format(lpFileName, "%s%s.%s", szTempPath, szTempFile, szTempExt);
+		}
+	}
+	return;
+}
+
+// Fix rail and highway border connections not loading properly
+extern "C" void __stdcall Hook_LoadNeighborConnections1500(void) {
+	wCityNeighborConnections1500 = 0;
+	dwBusPassengers = 0;
+
+	for (int x = 0; x < GAME_MAP_SIZE; x++) {
+		for (int y = 0; y < GAME_MAP_SIZE; y++) {
+			if (XTXTGetTextOverlayID(x, y) == 0xFA) {
+				BYTE iTileID = GetTileID(x, y);
+				if (iTileID >= TILE_RAIL_LR && iTileID < TILE_TUNNEL_T
+					|| iTileID >= TILE_CROSSOVER_ROADLR_RAILTB && iTileID < TILE_SUSPENSION_BRIDGE_START_B
+					|| iTileID >= TILE_HIGHWAY_HTB && iTileID < TILE_REINFORCED_BRIDGE_PYLON)
+					++wCityNeighborConnections1500;
+			}
+		}
+	}
+
+	if (sc2x_debug & SC2X_DEBUG_LOAD)
+		ConsoleLog(LOG_DEBUG, "SC2X: Loaded %d $1500 neighbor connections.\n", wCityNeighborConnections1500);
+}
+
+void InstallSaveHooks_SC2K1996(void) {
+	// Fix city name being overwritten by filename on save
+	BYTE bFilenamePatch[6] = { 0xB9, 0xA0, 0xA1, 0x4C, 0x00, 0x51 };
+	VirtualProtect((LPVOID)0x42FE62, 6, PAGE_EXECUTE_READWRITE, &dwDummy);
+	memcpy((LPVOID)0x42FE62, bFilenamePatch, 6);
+	VirtualProtect((LPVOID)0x42FE99, 6, PAGE_EXECUTE_READWRITE, &dwDummy);
+	memcpy((LPVOID)0x42FE99, bFilenamePatch, 6);
+
+	// Adjust the Save File dialog type criterion
+	VirtualProtect((LPVOID)0x4E7344, 32, PAGE_EXECUTE_READWRITE, &dwDummy);
+	memset((LPVOID)0x4E7344, 0, 32);
+	memcpy_s((LPVOID)0x4E7344, 32, "SimCity Files (*.sc2)|*.sc2||", 30);
+
+	// Fix save filenames going wonky
+	VirtualProtect((LPVOID)0x432870, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
+	NEWJMP((LPVOID)0x432870, Hook_CheckAndAppendCityExtension);
+
+	// Fix $1500 neighbor connections on game load
+	VirtualProtect((LPVOID)0x434BEA, 6, PAGE_EXECUTE_READWRITE, &dwDummy);
+	NEWCALL((LPVOID)0x434BEA, Hook_LoadNeighborConnections1500);
+	*(BYTE*)0x434BEF = 0x90;
+
 	// Load game hook
 	VirtualProtect((LPVOID)0x4025A4, 5, PAGE_EXECUTE_READWRITE, &dwDummy);
 	NEWJMP((LPVOID)0x4025A4, Hook_LoadGame);

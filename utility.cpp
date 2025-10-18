@@ -19,6 +19,7 @@ HFONT hFontMSSansSerifRegular10;
 HFONT hFontMSSansSerifBold10;
 HFONT hFontArialRegular10;
 HFONT hFontArialBold10;
+HFONT hFontArialBold16;
 HFONT hSystemRegular12;
 
 void InitializeFonts(void) {
@@ -33,6 +34,7 @@ void InitializeFonts(void) {
 	hFontMSSansSerifBold10 = CreateFont(-MulDiv(10, iDPI, 72), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, "MS Sans Serif");
 	hFontArialRegular10 = CreateFont(-MulDiv(10, iDPI, 72), 0, 0, 0, FW_REGULAR, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, "Arial");
 	hFontArialBold10 = CreateFont(-MulDiv(10, iDPI, 72), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, "Arial");
+	hFontArialBold16 = CreateFont(-MulDiv(16, iDPI, 72), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH, "Arial");
 	hSystemRegular12 = CreateFont(-MulDiv(12, iDPI, 72), 0, 0, 0, FW_REGULAR, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, "System");
 	bFontsInitialized = TRUE;
 }
@@ -172,6 +174,18 @@ HOOKEXT BOOL FileExists(const char* name) {
 	return FALSE;
 }
 
+HOOKEXT const char* GetFileBaseName(const char* szPath) {
+	char szName[MAX_PATH] = { 0 };
+	char szExt[MAX_PATH] = { 0 };
+	char* szBaseName = (char*)malloc(MAX_PATH);
+	if (!szBaseName)
+		return NULL;
+
+	_splitpath_s(szPath, NULL, 0, NULL, 0, szName, MAX_PATH, szExt, MAX_PATH);
+	sprintf_s(szBaseName, MAX_PATH, "%s%s", szName, szExt);
+	return szBaseName;
+}
+
 HOOKEXT const char* GetModsFolderPath(void) {
 	static char szModsFolderPath[MAX_PATH];
 
@@ -257,6 +271,31 @@ void MigrateRegDWORDValue(HKEY hKey, const char *lpSubKey, const char *lpValueNa
 void MigrateRegBOOLValue(HKEY hKey, const char *lpSubKey, const char *lpValueName, BOOL *bOut) {
 	DWORD dwOutSize = sizeof(BOOL);
 	_RegGetValue(hKey, lpSubKey, lpValueName, RRF_RT_REG_DWORD, NULL, bOut, &dwOutSize);
+}
+
+static BOOL IsBadFileCharacter(char c) {
+	// Note: This takes out the most common
+	// invalid filename character cases.
+	if (c >= 0x00 && c <= 0x1F)
+		return TRUE;
+	if (c == '<' || c == '>' ||
+		c == ':' || c == '"' ||
+		c == '/' || c == '\\' ||
+		c == '|' || c == '?' ||
+		c == '*' || c == 0x7F)
+		return TRUE;
+	return FALSE;
+}
+
+HOOKEXT BOOL IsFileNameValid(const char *pName) {
+	if (!pName)
+		return FALSE;
+
+	const char *pTemp = pName;
+	for (; *pTemp; pTemp++)
+		if (IsBadFileCharacter(*pTemp))
+			return FALSE;
+	return TRUE;
 }
 
 // start of base64 code
@@ -409,7 +448,7 @@ int MaxisDecompress(BYTE* pBuffer, size_t iBufSize, BYTE* pCompressedData, int i
 		else
 			ConsoleLog(LOG_WARNING, "LOAD: Unexpected 0x80 in MaxisDecompress. This should never happen.\n");
 	}
-	extern UINT sc2x_debug;
+
 	if (sc2x_debug & 4)
 		ConsoleLog(LOG_DEBUG, "LOAD: Uncompressed %d bytes into %d bytes.\n", i, j);
 	return j;
