@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <intrin.h>
 #include <time.h>
-#include <VersionHelpers.h>
+//#include <VersionHelpers.h>
 
 #include <sc2kfix.h>
 #include <winmm_exports.h>
